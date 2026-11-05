@@ -1,0 +1,23 @@
+{
+  "host": "0.0.0.0",
+  "port": 8003,
+  "allowedRoots": [],
+  "denyRoots": [
+    "C:/Windows",
+    "C:/Program Files",
+    "C:/ProgramData"
+  ],
+  "dataDir": "data",
+  "workCacheBytes": 21474836480,
+  "maxUploadBytes": 68719476736,
+  "strongMode": false,
+  "previewMode": "auto",
+  "jobConcurrency": 2,
+  "activeWindowSeconds": 600,
+  "defaultUi": "mine",
+  "ffmpeg": {
+    "version": "9.0.2",
+    "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip",
+    "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
+  }
+}

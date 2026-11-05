@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trim Studio — 動画トリミング</title>
+<style>
+:root{
+  --bg:#0b0d12; --panel:#141821; --panel2:#1a1f2b; --line:#262c39;
+  --ink:#e7ecf3; --muted:#8b95a7; --dim:#5c6675;
+  --acc:#ff4d3d; --acc2:#ffb020; --ok:#3ddc97; --blue:#4aa3ff;
+  --radius:12px; --shadow:0 8px 30px rgba(0,0,0,.45);
+  --mono:"SFMono-Regular",ui-monospace,"Cascadia Code","Roboto Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  background:var(--bg); color:var(--ink); line-height:1.5;
+  background-image:radial-gradient(1200px 600px at 80% -10%, rgba(255,77,61,.06), transparent 60%),
+                   radial-gradient(900px 500px at -10% 110%, rgba(74,163,255,.05), transparent 60%);
+}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+input,select{font:inherit;color:var(--ink)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---------- header ---------- */
+header{
+  position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;
+  padding:10px 14px;background:rgba(11,13,18,.85);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.02em}
+.mark{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--acc),var(--acc2));
+  display:grid;place-items:center;color:#0b0d12;font-weight:900;font-size:14px;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+.brand small{color:var(--muted);font-weight:600;font-size:11px;display:block;letter-spacing:.14em;text-transform:uppercase}
+.spacer{flex:1}
+.badge{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;min-width:0}
+.badge.on{color:var(--ok);border-color:rgba(61,220,151,.4)}
+
+/* ---------- layout ---------- */
+main{display:grid;gap:14px;padding:14px;max-width:1320px;margin:0 auto}
+.panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow)}
+.p-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.p-head h2{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.p-body{padding:14px}
+
+/* ---------- buttons / inputs ---------- */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border-radius:9px;font-weight:600;
+  border:1px solid var(--line);background:var(--panel2);transition:.15s;white-space:nowrap}
+.btn:hover{border-color:#3a4356;background:#20263380}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:linear-gradient(135deg,var(--acc),#ff7a3d);color:#160b09;border-color:transparent;font-weight:800}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ok{background:linear-gradient(135deg,var(--ok),#2fbf84);color:#07231a;border-color:transparent;font-weight:800}
+.btn.ghost{background:transparent}
+.btn.sm{padding:6px 9px;font-size:12px;border-radius:8px}
+.btn.block{width:100%;justify-content:center}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:11px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;font-weight:700}
+.inp,select.inp{width:100%;min-width:0;padding:9px 11px;border-radius:9px;background:#0e121a;border:1px solid var(--line)}
+.inp:focus,select.inp:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(74,163,255,.18)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1;min-width:0}
+
+/* ---------- source bar ---------- */
+.srcbar{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 14px}
+.src-actions{display:flex;gap:8px;flex:0 0 auto;justify-self:end;flex-wrap:wrap}
+.src-ico{width:38px;height:38px;border-radius:9px;background:#0e121a;border:1px solid var(--line);display:grid;place-items:center;color:var(--acc)}
+.src-meta{min-width:0;flex:1}
+.src-name{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.srcbar .btn{flex:0 0 auto;white-space:nowrap;min-width:0}
+@media(max-width:560px){.srcbar{grid-template-columns:38px minmax(0,1fr)}.src-actions{grid-column:2;justify-self:start}}
+.fcell img.bad{opacity:.3}
+.hint{overflow-wrap:anywhere}
+.src-sub{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:4px 12px;font-size:12px;margin-top:6px;min-width:0;overflow-wrap:anywhere}
+.src-sub span{white-space:normal;overflow-wrap:anywhere;min-width:0}
+.stream-box{margin-top:6px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;overflow-wrap:anywhere;min-width:0}
+.stream-box h4{margin:2px 0 4px;font-size:12px;color:var(--blue)}
+.stream-box div{overflow-wrap:anywhere}
+
+/* ---------- stage ---------- */
+.stage{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,.9fr);gap:14px}
+@media(max-width:860px){.stage{grid-template-columns:minmax(0,1fr)}}
+.viewer{position:relative;background:#05070b;border-radius:var(--radius);overflow:hidden;aspect-ratio:16/9;display:grid;grid-template-columns:minmax(0,1fr);place-items:center;min-width:0}
+.viewer video{width:100%;height:100%;max-width:100%;min-width:0;object-fit:contain;background:#000}
+.viewer .empty{color:var(--dim);text-align:center;padding:20px;font-size:14px}
+.crop-layer{position:absolute;inset:0;z-index:3;pointer-events:none;touch-action:none}
+.crop-box{position:absolute;box-sizing:border-box;border:1.5px solid #66ccff;box-shadow:0 0 0 9999px rgba(0,0,0,.45);cursor:move;pointer-events:auto;touch-action:none}
+.crop-box .ch{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;background:#66ccff;border:1px solid #0b0f14;border-radius:4px}
+.crop-box .ch.edge{width:26px;height:26px;margin:-13px 0 0 -13px;background:transparent;border:0}
+.crop-box .ch[data-h=nw]{left:0;top:0;cursor:nwse-resize}
+.crop-box .ch[data-h=ne]{left:100%;top:0;cursor:nesw-resize}
+.crop-box .ch[data-h=sw]{left:0;top:100%;cursor:nesw-resize}
+.crop-box .ch[data-h=se]{left:100%;top:100%;cursor:nwse-resize}
+.crop-box .ch[data-h=n]{left:50%;top:0;cursor:ns-resize}
+.crop-box .ch[data-h=s]{left:50%;top:100%;cursor:ns-resize}
+.crop-box .ch[data-h=w]{left:0;top:50%;cursor:ew-resize}
+.crop-box .ch[data-h=e]{left:100%;top:50%;cursor:ew-resize}
+.crop-size{position:absolute;left:0;bottom:100%;margin-bottom:5px;background:rgba(0,0,0,.7);padding:1px 6px;border-radius:5px;font-size:11px;white-space:nowrap}
+.frame-strip{display:flex;gap:8px;margin-top:12px;overflow-x:auto;padding-bottom:4px}
+.fcell{flex:0 0 auto;width:132px;background:#0e121a;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.fcell img{width:100%;height:74px;object-fit:cover;display:block;background:#000}
+.fcell .cap{font-size:11px;color:var(--muted);padding:5px 7px;text-align:center;border-top:1px solid var(--line)}
+
+/* ---------- timeline ---------- */
+.tl-wrap{margin-top:14px;padding:12px;background:#0e121a;border:1px solid var(--line);border-radius:var(--radius)}
+.tl-times{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:8px}
+.tl-times b{color:var(--ink)}
+.timeline{position:relative;height:46px;background:#0a0e15;border-radius:9px;border:1px solid var(--line);touch-action:none;cursor:pointer;overflow:hidden}
+.kf{position:absolute;top:0;width:1px;height:12px;background:rgba(255,255,255,.35)}
+.region{position:absolute;top:0;height:100%;background:linear-gradient(180deg,rgba(255,77,61,.28),rgba(255,77,61,.14));border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
+.playhead{position:absolute;top:-3px;width:2px;height:calc(100% + 6px);background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7);z-index:4}
+.playhead::before{content:"";position:absolute;top:-4px;left:-5px;width:12px;height:12px;border-radius:3px;background:#fff;transform:rotate(45deg)}
+.handle{position:absolute;top:0;height:100%;width:16px;z-index:5;cursor:ew-resize;display:flex;align-items:center;justify-content:center}
+.handle::after{content:"";width:4px;height:26px;border-radius:3px;background:var(--acc)}
+.handle.in{left:0}.handle.out{right:0}
+
+/* ---------- transport ---------- */
+.transport{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.tbtn{flex:1;min-width:44px;padding:11px 4px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);font-size:12px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:3px}
+.tbtn:hover{background:#20263380;border-color:#3a4356}
+.tbtn .g{font-size:16px;line-height:1}
+.tbtn.play{background:linear-gradient(135deg,var(--acc),#ff7a3d);color:#160b09;flex:2}
+
+/* ---------- in/out ---------- */
+.inout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:14px}
+@media(max-width:520px){.inout{grid-template-columns:minmax(0,1fr)}}
+.io-card{background:#0e121a;border:1px solid var(--line);border-radius:var(--radius);padding:12px}
+.io-card.in{border-left:3px solid var(--acc)}
+.io-card.out{border-left:3px solid var(--acc2)}
+.io-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.io-tag{font-size:12px;font-weight:800;letter-spacing:.08em}
+.io-in .io-tag{color:var(--acc)}.io-out .io-tag{color:var(--acc2)}
+.time-inp{width:100%;min-width:0;padding:9px 10px;border-radius:8px;background:#05070b;border:1px solid var(--line);font-family:var(--mono);font-size:14px;letter-spacing:.03em}
+.io-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+
+/* ---------- export panel ---------- */
+.seg{display:inline-flex;background:#0e121a;border:1px solid var(--line);border-radius:9px;padding:3px;gap:3px;width:100%}
+.seg button{flex:1;padding:8px;border-radius:7px;font-weight:700;font-size:13px;color:var(--muted)}
+.seg button.on{background:linear-gradient(135deg,var(--acc),#ff7a3d);color:#160b09}
+.opt-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:12px}
+@media(max-width:480px){.opt-grid{grid-template-columns:minmax(0,1fr)}}
+.chk{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#0e121a;font-size:13px}
+.chk input{width:18px;height:18px;accent-color:var(--acc)}
+.crop-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:6px}
+@media(max-width:480px){.crop-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.crop-grid .inp{padding:7px 6px;font-size:12px;text-align:center}
+
+/* ---------- progress / result ---------- */
+.prog{margin-top:12px}
+.bar{height:10px;background:#0a0e15;border-radius:999px;overflow:hidden;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .3s}
+.prog-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
+.logbox{margin-top:10px;background:#05070b;border:1px solid var(--line);border-radius:9px;padding:9px 11px;max-height:130px;overflow:auto;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.logbox div{padding:2px 0;border-bottom:1px dashed #1a2029}
+.result{margin-top:12px;background:#0e121a;border:1px solid rgba(61,220,151,.35);border-radius:var(--radius);padding:12px;display:none}
+.result.show{display:block;animation:pop .3s ease}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.result h3{font-size:12px;color:var(--ok);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px}
+.kv dt{color:var(--muted)}.kv dd{font-family:var(--mono);word-break:break-all}
+
+/* ---------- browse modal ---------- */
+.modal{position:fixed;inset:0;z-index:60;background:rgba(4,6,10,.72);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:14px}
+.modal.show{display:flex}
+body:has(.modal.show){overflow:hidden}
+html,body{overflow-x:clip}
+body.no-scroll{overflow:hidden;touch-action:none}
+.modal{overscroll-behavior:contain}
+.sheet{overscroll-behavior:contain;width:min(560px,100%);max-height:86vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.sheet-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.sheet-head h3{font-size:15px;font-weight:800}
+.crumbs{display:flex;flex-wrap:wrap;gap:4px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.crumbs button{color:var(--blue);padding:2px 5px;border-radius:6px}
+.crumbs button:hover{background:#20263380}
+.list{overflow:auto;flex:1;padding:6px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+.entry{display:grid;grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"ic nm sz" ". acts acts";gap:6px 10px;align-items:center;padding:10px 12px;border-radius:9px;width:100%;text-align:left}
+.entry:hover{background:#20263380}
+.entry .ic{grid-area:ic;width:24px;text-align:center;font-size:15px}
+.entry .nm{grid-area:nm;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.entry .sz{grid-area:sz;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;min-width:0}
+.sheet-foot{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sheet-foot .inp{flex:1 1 120px;min-width:0}
+
+/* ---------- toast / error ---------- */
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(30px);z-index:80;
+  background:#1a1f2b;border:1px solid var(--line);padding:11px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow);opacity:0;transition:.25s;max-width:90vw;overflow-wrap:anywhere;word-break:break-word;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:rgba(255,77,61,.5);color:#ffb3ab}
+#errbox{display:none;margin-top:10px;padding:10px 12px;border-radius:9px;background:rgba(255,77,61,.1);border:1px solid rgba(255,77,61,.4);color:#ffb3ab;font-size:13px;overflow-wrap:anywhere}
+#errbox.show{display:block}
+
+/* ---------- reveal ---------- */
+.reveal{opacity:0;transform:translateY(14px)}
+.reveal.in{animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards}
+@keyframes rise{to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none}.reveal.in{animation:none}*{transition:none!important}}
+
+/* ---------- source list ---------- */
+.srclist{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;min-width:0}
+.chip{padding:7px 11px;border-radius:999px;background:#0e121a;border:1px solid var(--line);font-size:12px;display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;overflow:hidden}
+.chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(56vw,100%)}
+.chip .x{flex:0 0 auto;padding:0 2px;color:var(--muted)}
+.chip.more{border-style:dashed;color:var(--blue)}
+.chip .x{color:var(--muted)}
+.hint{font-size:12px;color:var(--dim);margin-top:8px}
+.jobs-list{list-style:none;margin:4px 0 0;padding:0;font-size:12px;max-height:140px;overflow:auto}
+.jobs-list li{padding:2px 6px;border:1px solid var(--line);border-radius:6px;margin-bottom:3px}
+.job-running,.job-queued{border-color:var(--acc)}
+.job-done{border-color:var(--ok)}
+.job-error,.job-cancelled{border-color:var(--err)}
+.spin-overlay{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(8,11,14,.5)}
+.spin{width:38px;height:38px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:qspin .8s linear infinite}
+.spin-text{font-size:13px;color:#e8eef4}
+@keyframes qspin{to{transform:rotate(360deg)}}
+.entry .acts{grid-area:acts;display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;min-width:0}
+a.act{text-decoration:none;display:inline-flex;align-items:center}
+.job-dl{display:inline-block;margin-top:4px;font-size:11px;padding:3px 10px;border:1px solid var(--line);border-radius:999px;color:var(--blue);text-decoration:none}
+.entry .act{padding:3px 10px;border:1px solid var(--line);border-radius:999px;font-size:11px;color:var(--blue);white-space:nowrap}
+.job-head{font-weight:600}
+.job-sub{opacity:.75;font-size:11px;word-break:break-all}
+.spacer{flex:1}
+[hidden]{display:none!important}
+.spin-escape{margin-top:6px;padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:inherit}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="mark">✂</div>
+    <div>Trim Studio<small>Video Trimmer</small></div>
+  </div>
+  <div class="spacer"></div>
+  <span class="badge" id="modeBadge">preview: auto</span>
+  <button class="btn sm ghost" id="reloadBtn">更新</button>
+</header>
+
+<main>
+  <!-- SOURCE -->
+  <section class="panel reveal">
+    <div class="p-head"><h2>ソース動画</h2></div>
+    <div class="srcbar" id="srcbar">
+      <div class="src-ico" aria-hidden="true" title="装飾アイコン（機能はありません）">🎞</div>
+      <div class="src-meta">
+        <div class="src-name" id="srcName">動画を選択してください</div>
+        <div class="src-sub" id="srcSub"></div>
+      </div>
+      <span class="src-actions">
+        <button class="btn primary" id="browseBtn">PC から選択</button>
+        <label class="btn ghost" for="fileInput">アップロード<input type="file" id="fileInput" accept="video/*,audio/*,.lrv,.insv,.insp,.360,.mxf,.dv,.vob,.rm,.rmvb,.f4v,.3g2,.m2t,.mod,.tod,.avi,.wmv,.flv,.ts,.m2ts,.mts,.mpg,.mpeg,.3gp,.ogv" hidden></label>
+      </span>
+    </div>
+    <details class="meta-details" style="margin:0 14px 10px"><summary>詳細メタデータ（全ストリーム・タグ）</summary><div id="srcDetail"></div></details>
+    <div class="p-body" style="padding-top:0">
+      <div class="hint" style="margin-bottom:6px">読み込み済みの動画（タップで切替）</div>
+      <div class="srclist" id="srcList"></div>
+      <div class="hint">PC の動画をエクスプローラで辿って選択、または端末からアップロードできます。</div>
+    </div>
+  </section>
+
+  <!-- STAGE -->
+  <div class="stage">
+    <section class="panel reveal">
+      <div class="p-head"><h2>プレビュー</h2><span class="spacer"></span><span class="badge" id="variantBadge">—</span></div>
+      <div class="p-body">
+        <div class="viewer" id="viewer">
+          <video id="video" playsinline preload="metadata"></video>
+          <div class="crop-layer" id="cropLayer" hidden>
+            <div class="crop-box" id="cropBox">
+              <span class="ch" data-h="nw"></span><span class="ch" data-h="ne"></span>
+              <span class="ch" data-h="sw"></span><span class="ch" data-h="se"></span>
+              <span class="ch edge" data-h="n"></span><span class="ch edge" data-h="s"></span>
+              <span class="ch edge" data-h="w"></span><span class="ch edge" data-h="e"></span>
+              <div class="crop-size mono" id="cropSize"></div>
+            </div>
+          </div>
+          <div class="empty" id="vEmpty">動画を読み込むとプレビューが表示されます</div>
+        </div>
+        <div class="frame-strip" id="frameStrip"></div>
+
+        <div class="tl-wrap">
+          <div class="tl-times"><span class="mono" id="curTime">00:00:00.000</span><span class="mono" id="durTime">00:00:00.000</span></div>
+          <div class="timeline" id="timeline">
+            <div class="region" id="region"></div>
+            <div class="handle in" id="hIn"></div>
+            <div class="handle out" id="hOut"></div>
+            <div class="playhead" id="playhead"></div>
+          </div>
+        </div>
+
+        <div class="transport">
+          <button class="tbtn play" id="playBtn"><span class="g">▶</span><span>再生</span></button>
+          <button class="tbtn" data-step="-1f"><span class="g">⏮</span>-1F</button>
+          <button class="tbtn" data-step="+1f"><span class="g">⏭</span>+1F</button>
+          <button class="tbtn" data-step="-1s"><span class="g">«</span>-1s</button>
+          <button class="tbtn" data-step="+1s"><span class="g">»</span>+1s</button>
+          <button class="tbtn" data-step="-kf"><span class="g">◀|</span>KF−</button>
+          <button class="tbtn" data-step="+kf"><span class="g">|▶</span>KF+</button>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button class="btn sm" id="frameDlBtn">現在のフレーム画像を保存</button>
+        </div>
+
+        <div class="inout">
+          <div class="io-card in io-in">
+            <div class="io-top"><span class="io-tag">IN 開始点</span><button class="btn sm" id="setInBtn">現在位置に設定</button></div>
+            <input class="time-inp mono" id="inTime" value="00:00:00.000">
+          </div>
+          <div class="io-card out io-out">
+            <div class="io-top"><span class="io-tag">OUT 終了点</span><button class="btn sm" id="setOutBtn">現在位置に設定</button></div>
+            <input class="time-inp mono" id="outTime" value="00:00:00.000">
+          </div>
+        </div>
+
+        <div id="proxyBox" style="display:none;margin-top:12px">
+          <button class="btn block" id="proxyBtn">プロキシを生成</button>
+          <div class="hint" id="proxyHint"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXPORT -->
+    <section class="panel reveal">
+      <div class="p-head"><h2>書き出し</h2></div>
+      <div class="p-body">
+        <div class="field">
+          <label>変換モード</label>
+          <div class="seg" id="modeSeg">
+            <button data-mode="lossless" class="on">無変換</button>
+            <button data-mode="reencode">再エンコード</button>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:12px">
+          <label>出力先（任意）</label>
+          <div class="row">
+            <input class="inp mono" id="outPath" placeholder="空 = 既定の出力先">
+            <button class="btn sm" id="outBrowseBtn">参照</button>
+            <button class="btn sm" id="validateBtn">検証</button>
+          </div>
+          <div class="hint" id="pathInfo"></div>
+        </div>
+
+        <div class="field" style="margin-top:12px">
+          <label>コンテナ</label>
+          <select class="inp" id="contSel">
+            <option value="">自動（格納できる形式を選択）</option>
+            <option value="mp4">MP4</option><option value="mov">MOV</option>
+            <option value="matroska">MKV</option><option value="webm">WebM</option>
+            <option value="ipod">M4A</option><option value="mp3">MP3</option>
+            <option value="wav">WAV</option><option value="flac">FLAC</option><option value="ogg">OGG</option>
+          </select>
+        </div>
+
+        <div class="opt-grid" style="margin-top:10px">
+          <div class="field"><label>IN スナップ</label><select class="inp" id="inSnapSel">
+            <option value="prev">前のキーフレーム</option><option value="next">次のキーフレーム</option></select></div>
+          <div class="field"><label>OUT モード</label><select class="inp" id="outModeSel">
+            <option value="exact">正確</option><option value="keyframeBefore">KF 前</option><option value="keyframeAfter">KF 後</option></select></div>
+        </div>
+        <div class="hint" id="qRange"></div>
+
+        <div id="reOpts" style="display:none">
+          <div class="opt-grid">
+            <div class="field"><label>LUT</label><select class="inp" id="lutSel"><option value="">なし</option></select></div>
+            <div class="field"><label>エンコーダ</label><select class="inp" id="encSel">
+              <option value="libx264">libx264</option><option value="libx265">libx265</option>
+              <option value="h264_nvenc">h264_nvenc</option><option value="hevc_nvenc">hevc_nvenc</option>
+            </select></div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+            <label class="chk"><input type="checkbox" id="stabChk"> スタビライザー</label>
+            <label class="chk"><input type="checkbox" id="audioChk"> 音声再エンコード</label>
+          </div>
+          <div class="opt-grid" style="margin-top:10px">
+            <div class="field"><label>映像ビットレート (kbps)</label><input class="inp" id="vbrInp" type="number" min="0" step="100" placeholder="空 = CRF（元の画質基準）"></div>
+            <div class="field"><label>音声ビットレート (kbps)</label><input class="inp" id="abrInp" type="number" min="0" step="8" placeholder="空 = 元の音声ビットレート"></div>
+          </div>
+          <div class="field" style="margin-top:10px">
+            <label>クロップ（空 = 全体）</label>
+            <div class="crop-grid">
+              <input class="inp mono" id="cropW" placeholder="幅"><input class="inp mono" id="cropH" placeholder="高さ">
+              <input class="inp mono" id="cropX" placeholder="x"><input class="inp mono" id="cropY" placeholder="y">
+            </div>
+            <div class="row" style="margin-top:6px;flex-wrap:wrap">
+              <button class="btn sm" data-crop="full">全体</button>
+              <button class="btn sm" data-crop="16:9">16:9</button>
+              <button class="btn sm" data-crop="9:16">9:16</button>
+              <button class="btn sm" data-crop="1:1">1:1</button>
+              <button class="btn sm" data-crop="4:3">4:3</button>
+            </div>
+            <div class="hint">プレビュー上の青い枠をドラッグ、四隅・辺のつまみでサイズ変更できます（再エンコード時）。</div>
+          </div>
+        </div>
+
+        <button class="btn ok block" id="exportBtn" style="margin-top:14px">書き出しを実行</button>
+
+        <div class="prog" id="progBox" style="display:none">
+          <div class="bar"><i id="progFill"></i></div>
+          <div class="prog-meta"><span id="progStatus">待機中…</span><span class="mono" id="progPct">0%</span></div>
+          <div class="logbox" id="logBox"></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn sm" id="cancelJobBtn" style="display:none">書き出しを停止</button>
+        </div>
+        <div class="row"><strong class="hint">ジョブ一覧</strong><span class="spacer"></span><span class="hint" id="jobsSummary"></span></div>
+        <ul class="jobs-list" id="jobsList"></ul>
+
+        <div class="result" id="resultBox">
+          <h3>書き出し完了</h3>
+          <dl class="kv" id="resultKv"></dl>
+        </div>
+
+        <div id="errbox"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="spinOverlay" class="spin-overlay" hidden><div class="spin"></div><div class="spin-text" id="spinText">サーバー応答待ち…</div><button type="button" id="spinEscape" class="spin-escape" hidden>応答がありません — 操作を再開</button></div>
+
+<!-- BROWSE MODAL -->
+<div class="modal" id="browseModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <button class="btn sm ghost" id="upBtn">↑ 親へ</button>
+      <h3 id="browseTitle">PC の動画を選択</h3>
+      <span class="spacer"></span>
+      <button class="btn sm ghost" id="closeBrowse">閉じる</button>
+    </div>
+    <div class="row" style="padding:8px 14px;border-bottom:1px solid var(--line)"><select class="inp" id="driveSel" title="ドライブを切り替え"></select></div>
+    <div class="crumbs" id="crumbs"></div>
+    <div class="list" id="browseList"></div>
+    <div class="sheet-foot">
+      <input class="inp mono" id="pathInput" placeholder="パスを直接入力…">
+      <button class="btn sm" id="goPath">移動</button>
+      <input class="inp mono" id="newDirName" placeholder="新しいフォルダ名">
+      <button class="btn sm" id="mkdirBtn">作成</button>
+      <button class="btn sm ok" id="useDirBtn" style="display:none">このフォルダを使う</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const state={mode:"lossless",token:null,config:null,source:null,kind:"video",activeJobId:null,durationUs:0,fps:30,keyframes:[],inUs:0,outUs:0,curUs:0,variant:"original",directPlayable:true,mode:"lossless",luts:[],jobId:null};
+
+/* ---------- helpers ---------- */
+function fmt(us){us=Math.max(0,Math.round(us));const ms=us%1000,s=Math.floor(us/1000)%60,m=Math.floor(us/60000)%60,h=Math.floor(us/3600000);
+  return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")+"."+String(ms).padStart(3,"0");}
+function parseTime(str){const m=/^(\d{1,2}):(\d{2}):(\d{2})\.(\d{1,3})$/.exec((str||"").trim());if(!m)return null;
+  return ((+m[1]*3600+ +m[2]*60+ +m[3])*1000+(+m[4].padEnd(3,"0")))*1000;}
+function fmtBytes(b){if(b==null)return"—";const u=["B","KB","MB","GB","TB"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++;}return b.toFixed(i?1:0)+" "+u[i];}
+function toast(msg,err){const t=$("toast");t.textContent=msg;t.className="show"+(err?" err":"");clearTimeout(t._t);t._t=setTimeout(()=>t.className="",3200);}
+function showErr(msg){const e=$("errbox");e.textContent=msg;e.classList.add("show");}
+function clearErr(){$("errbox").classList.remove("show");}
+
+let spinN=0,spinT=null,spinOn=false,stuckT=null;
+const API_TIMEOUT=60000,STUCK_AFTER=25000;
+function showSpin(on){const el=$("spinOverlay");if(el)el.hidden=!on;
+  if(!on){const t=$("spinText");if(t)t.textContent="サーバー応答待ち…";const e=$("spinEscape");if(e)e.hidden=true;}}
+function armStuck(){if(stuckT)return;stuckT=setTimeout(()=>{stuckT=null;
+  const t=$("spinText");if(t)t.textContent="サーバーの応答がありません（待機中）";
+  const e=$("spinEscape");if(e)e.hidden=false;},STUCK_AFTER);}
+function clearStuck(){if(stuckT){clearTimeout(stuckT);stuckT=null;}}
+function releaseSpinner(){spinN=0;if(spinT){clearTimeout(spinT);spinT=null;}clearStuck();spinOn=false;showSpin(false);toast("応答待ちを解除しました（通信は未完了の可能性があります）",true);}
+function spin(d,silent){if(silent)return;spinN+=d;if(spinN<0)spinN=0;
+  if(spinN>0){if(!spinOn&&!spinT){spinT=setTimeout(()=>{spinT=null;if(spinN>0){spinOn=true;showSpin(true);armStuck();}},180);}}
+  else{if(spinT){clearTimeout(spinT);spinT=null;}clearStuck();if(spinOn){spinOn=false;showSpin(false);}}}
+async function api(path,opt={}){
+  opt.headers=opt.headers||{};
+  if(opt.method==="POST"||opt.method==="DELETE"){if(state.token)opt.headers["X-Trim-Token"]=state.token;}
+  const limit=opt.timeoutMs||API_TIMEOUT;
+  if(opt.timeoutMs)delete opt.timeoutMs;
+  let abortTimer=null,ctl=null;
+  if(typeof AbortController!=="undefined"){ctl=new AbortController();opt.signal=ctl.signal;abortTimer=setTimeout(()=>{try{ctl.abort();}catch(e){}},limit);armStuck();}
+  const silent=!!opt.silent;
+  spin(1,silent);
+  try{
+    const r=await fetch(path,opt);
+    let data=null;try{data=await r.json();}catch(e){}
+    if(!r.ok)throw new Error((data&&(data.message||data.error))||("HTTP "+r.status));
+    return data;
+  }catch(err){
+    if(err&&(err.name==="AbortError"||err.code===20))throw new Error("サーバーの応答がありません（"+Math.round(limit/1000)+"秒でタイムアウト）");
+    throw err;
+  }finally{if(abortTimer)clearTimeout(abortTimer);spin(-1,silent);}
+}
+
+/* ---------- boot ---------- */
+/* ---------- current frame download ---------- */
+function downloadFrame(){
+  if(!state.source||state.kind==="audio"){toast("動画を読み込んでください",true);return;}
+  const t=frameStamp(state.curUs);
+  const w=(state.source&&state.source.width)||1280;
+  const base=(state.source.name||"frame").replace(/\.[^.]*$/,"")+"_"+fmt(t).replace(/[:.]/g,"-")+".jpg";
+  const a=document.createElement("a");
+  a.href="/api/sources/"+state.source.id+"/frame?tUs="+t+"&width="+w;
+  a.setAttribute("download",base);
+  document.body.appendChild(a);a.click();a.remove();
+  toast("現在のフレーム画像を保存します: "+base);
+}
+/* ---------- settings persistence ---------- */
+const SETTINGS_KEY="trim.settings.v1";
+let pendingLut="";
+function saveSettings(){
+  try{
+    const s={mode:state.mode,container:$("contSel").value,outPath:$("outPath").value,
+      lut:$("lutSel").value,encoder:$("encSel").value,stabilize:$("stabChk").checked,
+      audio:$("audioChk").checked,vbr:$("vbrInp").value,abr:$("abrInp").value,
+      inSnap:$("inSnapSel").value,outMode:$("outModeSel").value,
+      cropW:$("cropW").value,cropH:$("cropH").value,cropX:$("cropX").value,cropY:$("cropY").value};
+    localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
+  }catch(_){}
+}
+function loadSettings(){
+  let s=null;try{s=JSON.parse(localStorage.getItem(SETTINGS_KEY)||"null");}catch(_){s=null;}
+  if(!s)return;
+  const set=(id,v)=>{if(v!==undefined&&v!==null&&$(id))$(id).value=v;};
+  set("contSel",s.container);set("outPath",s.outPath);set("vbrInp",s.vbr);set("abrInp",s.abr);
+  set("inSnapSel",s.inSnap);set("outModeSel",s.outMode);
+  if(s.encoder)$("encSel").value=s.encoder;
+  $("stabChk").checked=!!s.stabilize;$("audioChk").checked=!!s.audio;
+  set("cropW",s.cropW);set("cropH",s.cropH);set("cropX",s.cropX);set("cropY",s.cropY);
+  if(s.mode){state.mode=s.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===s.mode));
+    $("reOpts").style.display=s.mode==="reencode"?"block":"none";}
+  pendingLut=s.lut||"";
+}
+function bindSettings(){
+  ["contSel","outPath","lutSel","encSel","stabChk","audioChk","vbrInp","abrInp","inSnapSel","outModeSel",
+   "cropW","cropH","cropX","cropY"].forEach(id=>{const el=$(id);if(!el)return;
+    el.addEventListener("change",saveSettings);el.addEventListener("input",saveSettings);});
+}
+async function boot(){
+  try{const t=await api("/api/token");state.token=t.token;}catch(e){const m=window.prompt("トークンを入力してください（サーバのコンソールに表示されます）");if(m){try{const ar=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:m})});if(!ar.ok)throw new Error("HTTP "+ar.status);state.token="cookie";}catch(e2){showErr("認証に失敗: "+e2.message);}}else{showErr("トークン取得に失敗: "+e.message);}}
+  try{const c=await api("/api/config");state.config=c;$("modeBadge").textContent="preview: "+(c.previewMode||"auto");}catch(e){}
+  loadSettings();
+  try{const l=await api("/api/luts");state.luts=l.luts||[];const s=$("lutSel");s.innerHTML='<option value="">なし</option>';
+    state.luts.forEach(x=>{const o=document.createElement("option");o.value=x.path;o.textContent=x.name;s.appendChild(o);});
+    if(pendingLut)$("lutSel").value=pendingLut;}catch(e){}
+  try{const src=await api("/api/sources");renderSrcList(src.sources||[]);}catch(e){}
+  if(state.config&&state.config.defaultUploadOutput)$("outPath").placeholder="既定: "+state.config.defaultUploadOutput;
+}
+
+/* ---------- source list ---------- */
+let srcShowAll=false,srcCache=[];
+function renderSrcList(list){
+  srcCache=list.slice();
+  const box=$("srcList");box.textContent="";
+  const LIMIT=6;
+  const shown=srcShowAll?srcCache:srcCache.slice(0,LIMIT);
+  shown.forEach(s=>{
+    const c=document.createElement("button");
+    c.className="chip"+(state.source&&state.source.id===s.id?" on":"");
+    c.title=(s.name||"")+"（タップで切替）";
+    const nm=document.createElement("span");nm.className="nm";nm.textContent=midEllipsis(s.name,26);c.appendChild(nm);
+    const x=document.createElement("span");x.className="x";x.textContent="✕";x.title="この履歴を削除";
+    x.addEventListener("click",async ev=>{ev.stopPropagation();
+      if(!confirm("「"+(s.name||"")+"」を一覧から削除しますか？（アップロードしたファイルは削除されますが、PC 上の元ファイルは残ります）"))return;
+      try{await api("/api/sources/"+s.id,{method:"DELETE"});
+        if(state.source&&state.source.id===s.id){state.source=null;$("srcName").textContent="動画を選択してください";$("srcSub").textContent="";}
+        const d=await api("/api/sources");renderSrcList(d.sources||[]);toast("削除しました");}
+      catch(e){showErr("削除できませんでした: "+e.message);}});
+    c.appendChild(x);
+    c.addEventListener("click",()=>selectSource(s.id));box.appendChild(c);});
+  if(srcCache.length>LIMIT){
+    const more=document.createElement("button");more.className="chip more";
+    more.textContent=srcShowAll?("表示を減らす"):("他 "+(srcCache.length-LIMIT)+" 件を表示");
+    more.addEventListener("click",()=>{srcShowAll=!srcShowAll;renderSrcList(srcCache);});
+    box.appendChild(more);
+  }
+}
+
+/* ---------- select source ---------- */
+async function selectSource(id){
+  clearErr();
+  try{
+    const d=await api("/api/sources/"+id);
+    state.source=d.source;state.kind=d.source.kind||"video";state.directPlayable=d.directPlayable;state.variant="original";
+    state.durationUs=d.source.durationUs||0;state.fps=d.source.fps||30;
+    state.inUs=0;state.outUs=state.durationUs;
+    crop=null;state.proxyReady=false;syncCropInputs();renderSource();loadKeyframes(id);setVariant("original");refreshFrames();ensureCrop();drawCrop();
+  }catch(e){showErr("ソース読み込み失敗: "+e.message);}
+}
+function renderSource(){
+  const s=state.source;if(!s)return;
+  $("srcName").textContent=s.name;$("srcName").title=s.name;
+  const metaBox=$("srcSub");metaBox.textContent="";
+  const streams=s.streams||[],meta=s.meta||{};
+  const vst=streams.find(x=>x.type==="video"&&!x.attached_pic),ast=streams.find(x=>x.type==="audio");
+  const kbps=v=>{if(!v)return"—";return v>=1000000?(Math.round(v/100000)/10)+" Mbps":Math.round(v/1000)+" kbps";};
+  [["コンテナ",meta.format_long_name||s.container||"—"],
+   ["長さ",fmt(state.durationUs||0)],
+   ["サイズ",fmtBytes(s.size)],
+   ["全体ビットレート",kbps(s.bitRate)],
+   ["映像",(s.videoCodec||"—")+(vst&&vst.profile?" ("+vst.profile+(vst.level?"@L"+vst.level:"")+")":"")],
+   ["解像度",s.width?s.width+"×"+s.height:"—"],
+   ["フレームレート",s.fps?(Math.round(s.fps*1000)/1000)+" fps":"—"],
+   ["映像ビットレート",kbps(s.videoBitRate)],
+   ["音声",s.audioCodec||"—"],
+   ["音声ビットレート",kbps(s.audioBitRate)],
+   ["サンプルレート",ast&&ast.sample_rate?ast.sample_rate+" Hz":"—"],
+   ["チャンネル",ast&&ast.channels?(ast.channels+(ast.channel_layout?" ("+ast.channel_layout+")":"")):"—"],
+   ["ピクセル形式",s.pixFmt||"—"],
+   ["総フレーム数",vst&&vst.nb_frames?String(vst.nb_frames):"—"],
+   ["由来",s.origin==="upload"?"アップロード":"ローカル"]]
+   .forEach(([k,v])=>{const sp=document.createElement("span");sp.textContent=k+": "+v;metaBox.appendChild(sp);});
+  const detail=$("srcDetail");detail.textContent="";
+  const fmtBox=document.createElement("div");fmtBox.className="stream-box";
+  const fh=document.createElement("h4");fh.textContent="コンテナ情報";fmtBox.appendChild(fh);
+  [["format_name",meta.format_name],["nb_streams",meta.nb_streams],["start_time",meta.start_time],
+   ["probe_score",meta.probe_score],["duration",fmt(state.durationUs||0)]].forEach(([k,v])=>{
+    const d=document.createElement("div");d.textContent=k+": "+(v===null||v===undefined||v===""?"—":v);fmtBox.appendChild(d);});
+  Object.keys(meta.tags||{}).forEach(k=>{const d=document.createElement("div");d.textContent="tag "+k+": "+meta.tags[k];fmtBox.appendChild(d);});
+  detail.appendChild(fmtBox);
+  streams.forEach(st=>{
+    const box=document.createElement("div");box.className="stream-box";
+    const h=document.createElement("h4");h.textContent="#"+st.index+" "+st.type+" "+(st.codec||"")+(st.attached_pic?" (attached_pic)":"");
+    box.appendChild(h);
+    [["codec_long_name",st.codec_long_name],["profile",st.profile],["level",st.level],
+     ["width x height",st.width?st.width+"x"+st.height:null],["pix_fmt",st.pix_fmt],["field_order",st.field_order],
+     ["avg_frame_rate",st.avg_frame_rate],["r_frame_rate",st.r_frame_rate],
+     ["bit_rate",st.bit_rate?kbps(st.bit_rate):null],
+     ["nb_frames",st.nb_frames],["duration",st.duration_us?(st.duration_us/1e6).toFixed(3)+"s":null],
+     ["sample_rate",st.sample_rate],["channels",st.channels],["channel_layout",st.channel_layout],
+     ["color_space",st.color_space],["color_transfer",st.color_transfer],["color_primaries",st.color_primaries],
+     ["bits_per_raw_sample",st.bits_per_raw_sample],["start_time",st.start_time],
+     ["default",st.default?"yes":"no"],["forced",st.forced?"yes":"no"]]
+     .forEach(([k,v])=>{if(v===null||v===undefined||v==="")return;const d=document.createElement("div");d.textContent=k+": "+v;box.appendChild(d);});
+    detail.appendChild(box);
+  });
+  $("durTime").textContent=fmt(state.durationUs);
+  $("proxyBox").style.display=(state.directPlayable||state.kind==="audio")?"none":"block";updateProxyHint();
+  if(state.kind==="audio"){$("frameStrip").textContent="";}
+  updateTimeline();updateInOut();
+}
+/* ---------- media / variant ---------- */
+function setVariant(v){
+  state.variant=v;const vid=$("video");
+  vid.src="/api/sources/"+state.source.id+"/media?variant="+v;
+  $("variantBadge").textContent="variant: "+v+(state.directPlayable?"":" (proxy)");
+  $("vEmpty").style.display="none";
+}
+
+/* ---------- keyframes ---------- */
+async function loadKeyframes(id){
+  state.keyframes=[];try{const d=await api("/api/sources/"+id+"/keyframes",{timeoutMs:180000,silent:true});
+    if(d.state==="ready")state.keyframes=d.keyframes||[];updateInOut();}catch(e){}
+  drawKf();
+}
+function drawKf(){
+  const tl=$("timeline");tl.querySelectorAll(".kf").forEach(n=>n.remove());
+  if(!state.durationUs)return;
+  state.keyframes.forEach(us=>{const d=document.createElement("div");d.className="kf";
+    d.style.left=(us/state.durationUs*100)+"%";tl.appendChild(d);});
+}
+
+/* ---------- timeline ---------- */
+function updateTimeline(){
+  const dur=state.durationUs||1;
+  $("region").style.left=(state.inUs/dur*100)+"%";
+  $("region").style.width=((state.outUs-state.inUs)/dur*100)+"%";
+  $("playhead").style.left=(state.curUs/dur*100)+"%";
+}
+function actualRange(){
+  const kf=state.keyframes||[];
+  if(!kf.length)return{start:state.inUs,end:state.outUs,snapped:false};
+  const prev=us=>{let p=0;for(const k of kf){if(k<=us)p=k;else break;}return p;};
+  const inSnap=$("inSnapSel").value,outMode=$("outModeSel").value;
+  let start;
+  if(inSnap==="next"){const l=kf.filter(k=>k>=state.inUs);start=(!l.length||l[0]>=state.outUs)?prev(state.inUs):l[0];}
+  else start=prev(state.inUs);
+  let end;
+  if(outMode==="keyframeBefore")end=prev(state.outUs);
+  else if(outMode==="keyframeAfter"){const a=kf.filter(k=>k>=state.outUs);end=a.length?a[0]:state.outUs;}
+  else end=state.outUs;
+  return{start:start,end:end,snapped:true};
+}
+function updateInOut(){
+  if(document.activeElement!==$("inTime"))$("inTime").value=fmt(state.inUs);
+  if(document.activeElement!==$("outTime"))$("outTime").value=fmt(state.outUs);
+  const a=actualRange();
+  let text="目的 "+fmt(state.inUs)+" - "+fmt(state.outUs)+" / 長さ "+fmt(Math.max(0,state.outUs-state.inUs));
+  if(state.mode==="lossless"&&a.snapped){
+    text+="\n実カット "+fmt(a.start)+" - "+fmt(a.end)+" / 差分 IN "+Math.round((a.start-state.inUs)/1000)+"ms OUT "+Math.round((a.end-state.outUs)/1000)+"ms";
+  }
+  const el=$("qRange");if(el)el.textContent=text;
+}
+function seekTo(us){us=Math.max(0,Math.min(us,state.durationUs));state.curUs=us;
+  $("video").currentTime=us/1e6;$("curTime").textContent=fmt(us);updateTimeline();refreshFrames();}
+
+/* ---------- frames ---------- */
+let frameTimer=null;
+function frameStamp(us){
+  const dur=state.durationUs||0,fps=state.fps||30;
+  if(dur<=0)return Math.max(0,Math.round(us));
+  const last=Math.max(0,dur-Math.round(1000000/fps));
+  return Math.round(Math.max(0,Math.min(us,last)));
+}
+function refreshFrames(){
+  if(!state.source)return;clearTimeout(frameTimer);
+  if(state.kind==="audio"){$("frameStrip").textContent="";return;}
+  frameTimer=setTimeout(()=>{
+    const strip=$("frameStrip");strip.textContent="";
+    [[state.inUs,"IN"],[state.curUs,"現在"],[state.outUs,"OUT"]].forEach(([us,lab])=>{
+      const stamp=frameStamp(us);
+      const cell=document.createElement("div");cell.className="fcell";
+      const img=document.createElement("img");
+      img.src="/api/sources/"+state.source.id+"/frame?tUs="+stamp+"&width=260";
+      img.alt=lab;
+      img.addEventListener("error",()=>{img.classList.add("bad");img.alt=lab+" を取得できません";});
+      const cap=document.createElement("div");cap.className="cap mono";cap.textContent=lab+" "+fmt(stamp);
+      cell.appendChild(img);cell.appendChild(cap);strip.appendChild(cell);});
+  },120);
+}
+
+/* ---------- transport / step ---------- */
+function step(kind){
+  const f=state.fps||30;let us=state.curUs;
+  if(kind==="-1f")us-=Math.round(1e6/f);else if(kind==="+1f")us+=Math.round(1e6/f);
+  else if(kind==="-1s")us-=1e6;else if(kind==="+1s")us+=1e6;
+  else if(kind==="-kf"){const p=state.keyframes.filter(k=>k<us-1).pop();if(p!=null)us=p;}
+  else if(kind==="+kf"){const n=state.keyframes.find(k=>k>us+1);if(n!=null)us=n;}
+  seekTo(us);
+}
+
+/* ---------- proxy ---------- */
+function updateProxyHint(){
+  const t=$("proxyHint");if(!t)return;
+  if(state.kind==="audio"){t.textContent="";return;}
+  if(state.proxyReady){
+    t.textContent=(state.variant==="proxy"?"軽いプロキシでプレビュー中です。":"元の画質で再生中です。")+"下のボタンで切り替えられます。書き出しは元の画質のまま無変換です。作り直す場合は動画を開き直してください。";
+    return;
+  }
+  t.textContent="この形式はブラウザで直接再生できないため、軽いプレビュー用の動画（プロキシ）を作成できます。プロキシはプレビュー専用で、書き出しは元の画質のまま無変換です。";
+}
+async function makeProxy(){
+  if(state.proxyReady){
+    const next=state.variant==="proxy"?"original":"proxy";
+    setVariant(next);
+    $("proxyBtn").textContent=next==="proxy"?"元の画質で再生":"プロキシで再生";
+    updateProxyHint();
+    return;
+  }
+  clearErr();$("proxyBtn").disabled=true;$("proxyBtn").textContent="生成中…";
+  try{const d=await api("/api/sources/"+state.source.id+"/proxy",{method:"POST"});
+    pollJob(d.jobId,()=>{state.proxyReady=true;$("proxyBtn").disabled=false;$("proxyBtn").textContent="元の画質で再生";
+      setVariant("proxy");updateProxyHint();toast("プロキシ生成完了");});}
+  catch(e){showErr("プロキシ失敗: "+e.message);$("proxyBtn").disabled=false;$("proxyBtn").textContent="プロキシを生成";}
+}
+
+/* ---------- export ---------- */
+/* ---------- visual crop ---------- */
+let crop=null;            // {x,y,w,h} in source pixels; null = full frame
+function srcWH(){
+  const v=$("video"),s=state.source||{};
+  return {w:v.videoWidth||s.width||0,h:v.videoHeight||s.height||0};
+}
+function cropUsable(){return !!state.source&&state.kind!=="audio";}
+function videoRect(){
+  const v=$("video"),view=$("viewer");if(!v||!view)return null;
+  const box=view.getBoundingClientRect(),{w:vw,h:vh}=srcWH();
+  if(!vw||!vh||!box.width||!box.height)return null;
+  const scale=Math.min(box.width/vw,box.height/vh);
+  const w=vw*scale,h=vh*scale;
+  return {left:(box.width-w)/2,top:(box.height-h)/2,width:w,height:h,scale,vw,vh};
+}
+function syncCropInputs(){
+  const ids=["cropW","cropH","cropX","cropY"];
+  if(!crop){ids.forEach(id=>$(id).value="");return;}
+  $("cropW").value=Math.round(crop.w);$("cropH").value=Math.round(crop.h);
+  $("cropX").value=Math.round(crop.x);$("cropY").value=Math.round(crop.y);
+}
+function setCropRect(r){
+  const {w:sw,h:sh}=srcWH();if(!sw||!sh)return;
+  let w=Math.max(16,Math.min(Math.round(r.w),sw)),h=Math.max(16,Math.min(Math.round(r.h),sh));
+  w-=w%2;h-=h%2;
+  const x=Math.max(0,Math.min(Math.round(r.x),sw-w)),y=Math.max(0,Math.min(Math.round(r.y),sh-h));
+  crop={x,y,w,h};syncCropInputs();drawCrop();
+}
+function fullRect(){const {w,h}=srcWH();return {x:0,y:0,w,h};}
+function isFullCrop(){
+  if(!crop)return true;const {w,h}=srcWH();
+  return Math.round(crop.w)===w&&Math.round(crop.h)===h&&crop.x===0&&crop.y===0;
+}
+function ensureCrop(){
+  if(state.mode!=="reencode"||!cropUsable())return;
+  if(!crop){const {w,h}=srcWH();if(w&&h)crop={x:0,y:0,w:w-w%2,h:h-h%2};}
+}
+function drawCrop(){
+  const layer=$("cropLayer"),box=$("cropBox");if(!layer||!box)return;
+  const show=state.mode==="reencode"&&cropUsable()&&!!crop;
+  const r=show?videoRect():null;
+  if(!r){layer.hidden=true;return;}
+  layer.hidden=false;
+  box.style.left=(r.left+crop.x*r.scale)+"px";
+  box.style.top=(r.top+crop.y*r.scale)+"px";
+  box.style.width=(crop.w*r.scale)+"px";
+  box.style.height=(crop.h*r.scale)+"px";
+  $("cropSize").textContent=Math.round(crop.w)+"x"+Math.round(crop.h)+" (x"+Math.round(crop.x)+", y"+Math.round(crop.y)+")";
+}
+function cropPreset(kind){
+  const {w:sw,h:sh}=srcWH();if(!sw||!sh)return;
+  if(kind==="full"){crop=null;syncCropInputs();drawCrop();return;}
+  const parts=kind.split(":"),aw=+parts[0],ah=+parts[1];
+  if(!aw||!ah)return;
+  let w=sw,h=Math.round(sw*ah/aw);
+  if(h>sh){h=sh;w=Math.round(sh*aw/ah);}
+  w-=w%2;h-=h%2;
+  setCropRect({x:Math.round((sw-w)/2),y:Math.round((sh-h)/2),w,h});
+}
+(function(){
+  const box=$("cropBox");if(!box)return;
+  let drag=null;
+  box.addEventListener("pointerdown",e=>{
+    if(!crop)return;
+    const live=e.target&&e.target.dataset?e.target.dataset.h:null;
+    drag={handle:live||"move",sx:e.clientX,sy:e.clientY,rect:Object.assign({},crop)};
+    try{box.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();e.stopPropagation();
+  });
+  box.addEventListener("pointermove",e=>{
+    if(!drag)return;
+    const r=videoRect();if(!r)return;
+    const dx=(e.clientX-drag.sx)/r.scale,dy=(e.clientY-drag.sy)/r.scale,R=drag.rect,H=drag.handle;
+    let x=R.x,y=R.y,w=R.w,h=R.h;
+    if(H==="move"){x=R.x+dx;y=R.y+dy;}
+    else{
+      if(H.indexOf("w")>=0){const nx=R.x+dx,nw=R.w-(nx-R.x);if(nw>=16){x=nx;w=nw;}}
+      if(H.indexOf("e")>=0){w=R.w+dx;}
+      if(H.indexOf("n")>=0){const ny=R.y+dy,nh=R.h-(ny-R.y);if(nh>=16){y=ny;h=nh;}}
+      if(H.indexOf("s")>=0){h=R.h+dy;}
+    }
+    setCropRect({x,y,w,h});
+    e.preventDefault();
+  });
+  const stop=e=>{if(drag){drag=null;try{box.releasePointerCapture(e.pointerId);}catch(_){}}};
+  box.addEventListener("pointerup",stop);
+  box.addEventListener("pointercancel",stop);
+  ["cropW","cropH","cropX","cropY"].forEach(id=>{
+    const el=$(id);if(!el)return;
+    el.addEventListener("change",()=>{
+      const w=+$("cropW").value,h=+$("cropH").value;
+      if(w>0&&h>0)setCropRect({x:+$("cropX").value||0,y:+$("cropY").value||0,w,h});
+      else{crop=null;syncCropInputs();drawCrop();}
+    });
+  });
+  document.querySelectorAll("[data-crop]").forEach(b=>b.addEventListener("click",()=>cropPreset(b.dataset.crop)));
+  window.addEventListener("resize",()=>{ensureCrop();drawCrop();});
+})();
+
+function collectOptions(){
+  const o={inSnap:$("inSnapSel").value,outMode:$("outModeSel").value,
+    lut:$("lutSel").value||null,stabilize:$("stabChk").checked,audioReencode:$("audioChk").checked,
+    encoder:$("encSel").value};
+  const w=+$("cropW").value,h=+$("cropH").value,x=$("cropX").value,y=$("cropY").value;
+  // full frame means "no crop" so a lossless-style re-encode is not forced through a filter
+  if(w>0&&h>0&&!isFullCrop())o.crop={w,h,x:+x||0,y:+y||0};
+  const p=$("outPath").value.trim();if(p)o.outputPath=p;
+  const ct=$("contSel").value;if(ct)o.container=ct;
+  const vb=parseInt($("vbrInp").value,10);if(vb>0)o.videoBitrate=vb;
+  const ab=parseInt($("abrInp").value,10);if(ab>0)o.audioBitrate=ab;
+  return o;
+}
+async function doExport(){
+  clearErr();
+  if(!state.source){showErr("ソースが選択されていません");return;}
+  if(state.outUs<=state.inUs){showErr("OUT は IN より後にしてください");return;}
+  const re=state.mode==="reencode";
+  if(re&&!confirm("再エンコード（非無変換）で書き出します。画質は劣化し、時間がかかります。\nよろしいですか？"))return;
+  try{
+    const d=await api("/api/exports",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({sourceId:state.source.id,startUs:Math.round(state.inUs),endUs:Math.round(state.outUs),mode:state.mode,options:collectOptions()})});
+    state.jobId=d.jobId;startProgress();pollJob(d.jobId,onExportDone);
+  }catch(e){showErr("書き出し失敗: "+e.message);}
+}
+
+/* ---------- progress (SSE + poll fallback) ---------- */
+function startProgress(){
+  $("progBox").style.display="block";$("progFill").style.width="0%";$("progPct").textContent="0%";
+  $("progStatus").textContent="開始…";$("logBox").textContent="";$("resultBox").classList.remove("show");
+}
+function setProgress(p,status){const pct=Math.round((p||0)*100);$("progFill").style.width=pct+"%";$("progPct").textContent=pct+"%";if(status)$("progStatus").textContent=status;}
+function addLog(line){const box=$("logBox");const d=document.createElement("div");d.textContent=line;box.appendChild(d);box.scrollTop=box.scrollHeight;}
+
+function pollJob(id,onDone){
+  state.activeJobId=id;$("cancelJobBtn").style.display="inline-flex";
+  const es=new EventSource("/api/jobs/"+id+"/events");let done=false;
+  es.addEventListener("state",e=>{try{const j=JSON.parse(e.data);setProgress(j.progress,j.status);}catch(_){}});
+  es.addEventListener("log",e=>{try{const d=JSON.parse(e.data);addLog(d.message||d.line||"");}catch(_){}});
+  es.addEventListener("done",e=>{done=true;es.close();finish(id,onDone);});
+  es.onerror=()=>{if(done)return;es.close();pollFallback(id,onDone);};
+}
+function pollFallback(id,onDone){
+  let misses=0;
+  const iv=setInterval(async()=>{try{const d=await api("/api/jobs/"+id,{silent:true});const j=d.job;setProgress(j.progress,j.status);misses=0;
+    if(j.status==="done"||j.status==="error"||j.status==="cancelled"){clearInterval(iv);finish(id,onDone,j);}}
+    catch(e){misses+=1;if(misses>=5){clearInterval(iv);showErr("ジョブが見つかりません（サーバが再起動された可能性があります）");$("progStatus").textContent="不明";}}},1500);
+}
+async function finish(id,onDone,pre){
+  state.activeJobId=null;$("cancelJobBtn").style.display="none";refreshJobs();
+  try{const d=pre||await api("/api/jobs/"+id);const j=d.job;
+    if(j.status==="error"){showErr("ジョブエラー: "+(j.error||"不明"));$("progStatus").textContent="エラー";return;}
+    if(j.status==="cancelled"){showErr("キャンセルされました");$("progStatus").textContent="キャンセル";return;}
+    setProgress(1,"完了");if(onDone)onDone(j.result||{});}catch(e){showErr("結果取得失敗: "+e.message);}
+}
+function onExportDone(r){
+  const box=$("resultBox"),kv=$("resultKv");box.classList.add("show");kv.textContent="";
+  const rows=[["出力パス",r.outputPath||"—"],["カット区間",(r.actualStartUs!=null?fmt(r.actualStartUs):fmt(state.inUs))+" → "+(r.actualEndUs!=null?fmt(r.actualEndUs):fmt(state.outUs))],
+    ["変換",state.mode==="lossless"?"無変換":"再エンコード"]];
+  if(r.actualStartUs!=null)rows.push(["実カット",(fmt(r.actualStartUs)+" → "+fmt(r.actualEndUs))]);
+  if(r.note)rows.push(["備考",r.note]);
+  (r.warnings||[]).forEach((w,i)=>rows.push([i===0?"警告":"",w]));
+  rows.forEach(([k,v])=>{const dt=document.createElement("dt");dt.textContent=k;const dd=document.createElement("dd");dd.textContent=v;kv.appendChild(dt);kv.appendChild(dd);});
+  if(r.outputPath){
+    const dt=document.createElement("dt");dt.textContent="ダウンロード";
+    const dd=document.createElement("dd");
+    const a=document.createElement("a");a.className="btn sm";a.textContent="ファイルを保存";
+    a.href="/api/fs/download?path="+encodeURIComponent(r.outputPath);a.setAttribute("download","");
+    dd.appendChild(a);kv.appendChild(dt);kv.appendChild(dd);
+  }
+  toast("書き出し完了");
+}
+
+/* ---------- browse modal ---------- */
+let browsePath="";  // session only: the modal always starts at the Videos folder
+let pickDir=false;
+let pickAction=null,pickSource=null;
+let browseParent=null;
+async function openBrowse(){
+  $("browseModal").classList.add("show");document.body.classList.add("no-scroll");
+  try{const r=await api("/api/roots");renderRoots(r.roots||[]);}catch(e){$("browseList").textContent="ルート取得失敗: "+e.message;}
+  if(!browsePath&&state.config&&state.config.videosDir)browsePath=state.config.videosDir;
+  if(browsePath){browseTo(browsePath);}
+}
+function driveOf(p){const m=/^([A-Za-z]:)/.exec(p||"");return m?m[1]+"\\":"";}
+function syncDrive(path){
+  const sel=$("driveSel");if(!sel)return;
+  const d=driveOf(path).replace(/[\\/]+$/,"").toLowerCase();
+  for(const o of sel.options){if(o.value.replace(/[\\/]+$/,"").toLowerCase()===d){sel.value=o.value;break;}}
+}
+function renderRoots(roots){
+  const sel=$("driveSel");
+  if(sel){const keep=sel.value;sel.textContent="";
+    roots.forEach(rt=>{const o=document.createElement("option");o.value=rt.path;o.textContent=rt.name||rt.path;sel.appendChild(o);});
+    if(keep)sel.value=keep;}
+  const list=$("browseList");list.textContent="";$("crumbs").textContent="";
+  roots.forEach(rt=>{const b=document.createElement("button");b.className="entry";
+    const ic=document.createElement("span");ic.className="ic";ic.textContent="💾";
+    const nm=document.createElement("span");nm.className="nm";nm.textContent=rt.name||rt.path;
+    b.appendChild(ic);b.appendChild(nm);b.addEventListener("click",()=>browseTo(rt.path));list.appendChild(b);});
+}
+async function browseTo(path){
+  try{const d=await api("/api/browse?path="+encodeURIComponent(path));browsePath=d.path;browseParent=d.parent;syncDrive(d.path);renderBrowse(d);}catch(e){$("browseList").textContent="取得失敗: "+e.message;}
+}
+function renderBrowse(d){
+  const crumbs=$("crumbs");crumbs.textContent="";
+  if(d.parent){const b=document.createElement("button");b.textContent="↑ ..";b.addEventListener("click",()=>browseTo(d.parent));crumbs.appendChild(b);}
+  const parts=(d.path||"").split(/[\\/]+/).filter(Boolean);
+  const drive=/^[A-Za-z]:$/.test(parts[0]||"")?parts[0]:null;
+  parts.forEach((seg,i)=>{
+    let p;
+    if(i===0&&drive){p=drive+"\\";}
+    else{const rest=parts.slice(drive?1:0,i+1).join("/");p=(drive?drive+"\\":"")+rest;}
+    const b=document.createElement("button");b.textContent=seg;
+    b.addEventListener("click",()=>browseTo(p));crumbs.appendChild(b);});
+  const list=$("browseList");list.textContent="";
+  (d.entries||[]).forEach(en=>{
+    const b=document.createElement("button");b.className="entry";
+    const ic=document.createElement("span");ic.className="ic";ic.textContent=en.dir?"📁":"🎞️";
+    const nm=document.createElement("span");nm.className="nm";nm.textContent=midEllipsis(en.name,44);nm.title=en.name;
+    b.appendChild(ic);b.appendChild(nm);
+    if(!en.dir){const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtBytes(en.size);b.appendChild(sz);}
+    const cp=document.createElement("span");cp.className="act";cp.textContent="コピー";
+    cp.addEventListener("click",ev=>{ev.stopPropagation();pickAction="copy";pickSource=en.path;$("useDirBtn").textContent="ここにコピー";$("useDirBtn").style.display="inline-flex";toast("移動先フォルダを開いて「ここにコピー」");});
+    const acts=document.createElement("span");acts.className="acts";acts.appendChild(cp);
+    const mv=document.createElement("span");mv.className="act";mv.textContent="移動";
+    mv.addEventListener("click",ev=>{ev.stopPropagation();pickAction="move";pickSource=en.path;$("useDirBtn").textContent="ここに移動";$("useDirBtn").style.display="inline-flex";toast("移動先フォルダを開いて「ここに移動」");});
+    acts.appendChild(mv);
+    const dl=document.createElement("a");dl.className="act";dl.textContent="ダウンロード";
+    dl.href="/api/fs/download?path="+encodeURIComponent(en.path);dl.setAttribute("download","");
+    dl.addEventListener("click",ev=>ev.stopPropagation());
+    acts.appendChild(dl);b.appendChild(acts);
+    b.addEventListener("click",()=>{if(en.dir)browseTo(en.path);else if(!pickAction)openLocal(en.path);});
+    list.appendChild(b);});
+}
+async function openLocal(path){
+  hideBrowse();clearErr();
+  try{const d=await api("/api/sources/open",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});
+    selectSource(d.source.id);toast("開きました: "+d.source.name);}catch(e){showErr("開けませんでした: "+e.message);}
+}
+
+/* ---------- upload ---------- */
+async function doUpload(file){
+  clearErr();toast("アップロード中…");
+  const fd=new FormData();fd.append("file",file);
+  try{const d=await api("/api/sources/upload",{method:"POST",body:fd,timeoutMs:1800000});selectSource(d.source.id);toast("アップロード完了");}
+  catch(e){showErr("アップロード失敗: "+e.message);}
+}
+
+/* ---------- path validate ---------- */
+async function validatePath(){
+  const p=$("outPath").value.trim();if(!p){$("pathInfo").textContent="";return;}
+  try{const d=await api("/api/paths/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:p})});
+    $("pathInfo").textContent=(d.writable?"書き込み可能 ✓":"書き込み不可 ✗")+" / 空き "+fmtBytes(d.freeBytes)+" / 必要 "+fmtBytes(d.estimatedNeedBytes);
+  }catch(e){$("pathInfo").textContent="検証失敗: "+e.message;}
+}
+
+/* ---------- events ---------- */
+const vid=$("video");
+vid.addEventListener("timeupdate",()=>{state.curUs=Math.round(vid.currentTime*1e6);$("curTime").textContent=fmt(state.curUs);updateTimeline();});
+vid.addEventListener("loadedmetadata",()=>{if(!state.durationUs&&vid.duration)state.durationUs=Math.round(vid.duration*1e6);refreshFrames();ensureCrop();drawCrop();});
+vid.addEventListener("play",()=>{$("playBtn").querySelector(".g").textContent="⏸";$("playBtn").lastElementChild.textContent="一時停止";});
+vid.addEventListener("pause",()=>{$("playBtn").querySelector(".g").textContent="▶";$("playBtn").lastElementChild.textContent="再生";});
+
+$("playBtn").addEventListener("click",()=>{if(!state.source)return;vid.paused?vid.play():vid.pause();});
+document.querySelectorAll("[data-step]").forEach(b=>b.addEventListener("click",()=>step(b.dataset.step)));
+$("setInBtn").addEventListener("click",()=>{state.inUs=Math.min(state.curUs,state.outUs);updateInOut();updateTimeline();refreshFrames();});
+$("setOutBtn").addEventListener("click",()=>{state.outUs=Math.max(state.curUs,state.inUs);updateInOut();updateTimeline();refreshFrames();});
+$("inTime").addEventListener("change",()=>{const v=parseTime($("inTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.inUs=Math.min(v,state.outUs);updateInOut();updateTimeline();refreshFrames();});
+$("outTime").addEventListener("change",()=>{const v=parseTime($("outTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.outUs=Math.max(v,state.inUs);updateInOut();updateTimeline();refreshFrames();});
+
+/* timeline seek + handle drag */
+let drag=null;
+function tlPos(e){const r=$("timeline").getBoundingClientRect();const x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;return Math.max(0,Math.min(1,x/r.width));}
+$("timeline").addEventListener("pointerdown",e=>{if(!state.source)return;
+  const t=e.target;if(t.id==="hIn")drag="in";else if(t.id==="hOut")drag="out";else drag="seek";
+  $("timeline").setPointerCapture(e.pointerId);tlMove(e);});
+$("timeline").addEventListener("pointermove",e=>{if(drag)tlMove(e);});
+$("timeline").addEventListener("pointerup",()=>{drag=null;refreshFrames();});
+function tlMove(e){const dur=state.durationUs||1;const us=Math.round(tlPos(e)*dur);
+  if(drag==="seek"){seekTo(us);}else if(drag==="in"){state.inUs=Math.min(us,state.outUs);updateInOut();updateTimeline();}
+  else if(drag==="out"){state.outUs=Math.max(us,state.inUs);updateInOut();updateTimeline();}}
+
+$("cancelJobBtn").addEventListener("click",async()=>{if(!state.activeJobId)return;
+  try{await api("/api/jobs/"+state.activeJobId+"/cancel",{method:"POST"});toast("停止を要求しました");}
+  catch(e){showErr("停止に失敗: "+e.message);}});
+const KIND_LABEL={export:"書き出し",proxy:"プロキシ",sprite:"サムネイル",index:"索引",copy:"コピー",move:"移動"};
+const STATUS_LABEL={queued:"待機中",running:"実行中",done:"完了",error:"失敗",cancelled:"キャンセル"};
+function baseName(p){return String(p||"").split(/[\\/]/).pop();}
+function midEllipsis(name,limit){const s=String(name||"");const lim=limit||36;
+  if(s.length<=lim)return s;const keep=lim-1,head=Math.ceil(keep*0.6),tail=keep-head;
+  return s.slice(0,head)+"…"+s.slice(s.length-tail);}
+async function refreshJobs(){
+  const box=$("jobsList");if(!box)return;
+  try{const d=await api("/api/jobs?history=20",{silent:true});const list=d.jobs||[];box.textContent="";
+    let running=0,queued=0;
+    list.forEach(j=>{
+      if(j.status==="running")running++;if(j.status==="queued")queued++;
+      const li=document.createElement("li");li.className="job-"+(j.status||"queued");
+      const head=document.createElement("div");head.className="job-head";
+      const pct=(j.status==="running"||j.status==="queued")&&j.progress!=null?" "+Math.round(j.progress*100)+"%":"";
+      head.textContent=(KIND_LABEL[j.kind]||j.kind||"ジョブ")+" / "+(STATUS_LABEL[j.status]||j.status)+pct;
+      li.appendChild(head);
+      const nm=j.sourceName||baseName((j.result||{}).outputPath);
+      if(nm||j.status==="queued"){const sub=document.createElement("div");sub.className="job-sub";sub.textContent=(nm||"")+(j.status==="queued"?"（順番待ち）":"");li.appendChild(sub);}
+      const out=(j.result||{}).outputPath;
+      if(j.status==="done"&&out){
+        const dl=document.createElement("a");dl.className="job-dl";dl.textContent="ファイルを保存";
+        dl.href="/api/fs/download?path="+encodeURIComponent(out);dl.setAttribute("download","");
+        li.appendChild(dl);
+      }
+      box.appendChild(li);});
+    const sum=$("jobsSummary");if(sum)sum.textContent=list.length?(running+" 実行中 / "+queued+" 待機中 / 計 "+list.length):"なし";
+  }catch(e){}
+}
+$("modeSeg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  state.mode=b.dataset.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  $("reOpts").style.display=state.mode==="reencode"?"block":"none";ensureCrop();drawCrop();saveSettings();});
+$("frameDlBtn").addEventListener("click",downloadFrame);
+bindSettings();
+$("inSnapSel").addEventListener("change",updateInOut);
+$("outModeSel").addEventListener("change",updateInOut);
+
+$("browseBtn").addEventListener("click",()=>{pickDir=false;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="none";$("browseTitle").textContent="PC の動画を選択";openBrowse();});
+$("outBrowseBtn").addEventListener("click",()=>{pickDir=true;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="inline-flex";$("browseTitle").textContent="出力先フォルダを選択";openBrowse();});
+$("useDirBtn").addEventListener("click",async()=>{
+  if(!browsePath)return;
+  if(pickAction){
+    const verb=pickAction==="move"?"移動":"コピー";
+    try{await api("/api/fs/"+pickAction,{method:"POST",body:JSON.stringify({source:pickSource,destination:browsePath})});
+      toast(verb+"を開始しました（ジョブ一覧に表示）");refreshJobs();}
+    catch(e){showErr(verb+"失敗: "+e.message);}
+    hideBrowse();return;
+  }
+  $("outPath").value=browsePath;hideBrowse();});
+$("mkdirBtn").addEventListener("click",async()=>{const n=$("newDirName").value.trim();if(!n||!browsePath){toast("フォルダ名を入力してください");return;}
+  const sep=browsePath.indexOf("\\")>=0?"\\":"/";const target=browsePath.replace(/[\\/]+$/,"")+sep+n;
+  try{const d=await api("/api/fs/mkdir",{method:"POST",body:JSON.stringify({path:target})});$("newDirName").value="";await browseTo(d.path);}catch(e){showErr("フォルダ作成失敗: "+e.message);}});
+$("closeBrowse").addEventListener("click",closeBrowseModal);
+function hideBrowse(){$("browseModal").classList.remove("show");document.body.classList.remove("no-scroll");pickDir=false;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="none";}
+function closeBrowseModal(){hideBrowse();}
+$("driveSel").addEventListener("change",e=>{if(e.target.value)browseTo(e.target.value);});
+$("upBtn").addEventListener("click",()=>{if(browseParent)browseTo(browseParent);});
+$("goPath").addEventListener("click",()=>{const p=$("pathInput").value.trim();if(p)browseTo(p);});
+$("fileInput").addEventListener("change",e=>{if(e.target.files[0])doUpload(e.target.files[0]);});
+$("proxyBtn").addEventListener("click",makeProxy);
+$("exportBtn").addEventListener("click",doExport);
+$("validateBtn").addEventListener("click",validatePath);
+$("reloadBtn").addEventListener("click",boot);
+$("spinEscape").addEventListener("click",releaseSpinner);
+
+/* reveal */
+const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){x.target.classList.add("in");io.unobserve(x.target);}}),{threshold:.12});
+document.querySelectorAll(".reveal").forEach(el=>io.observe(el));
+
+/* ---------- layout diagnostic (?debug=1) ---------- */
+function inScrollContainer(el){
+  for(let p=el.parentElement;p&&p!==document.body;p=p.parentElement){
+    const ox=getComputedStyle(p).overflowX;
+    if(ox==="auto"||ox==="scroll"||ox==="hidden"||ox==="clip")return true;
+  }
+  return false;
+}
+function layoutReport(){
+  const de=document.documentElement,sw=window.screen.width,vv=window.visualViewport;
+  const report={screenWidth:sw,clientWidth:de.clientWidth,scrollWidth:de.scrollWidth,icbExpanded:de.clientWidth>sw+1,
+    visualScale:vv?vv.scale:null,visualWidth:vv?Math.round(vv.width):null,offenders:[]};
+  document.querySelectorAll("*").forEach(el=>{
+    const r=el.getBoundingClientRect();
+    const fixed=getComputedStyle(el).position==="fixed";
+    if(!fixed&&!inScrollContainer(el)&&(r.right>sw+1||r.width>sw+1)){
+      report.offenders.push((el.id?"#"+el.id:el.tagName.toLowerCase())+" w="+Math.round(r.width)+" right="+Math.round(r.right)+" minW="+getComputedStyle(el).minWidth);
+    }
+  });
+  report.offenders=report.offenders.slice(0,40);
+  console.log("[layout] "+JSON.stringify(report,null,2));
+  return report;
+}
+if(new URLSearchParams(location.search).get("debug")==="1"){
+  const run=()=>{try{const r=layoutReport();toast("診断: ICB拡張="+r.icbExpanded+" / 検出 "+r.offenders.length+" 件（詳細はコンソール）",r.offenders.length>0);}catch(e){}};
+  setTimeout(run,1500);
+  document.addEventListener("click",()=>setTimeout(run,400),true);
+}
+refreshJobs();setInterval(refreshJobs,3000);
+boot();
+</script>
+</body>
+</html>

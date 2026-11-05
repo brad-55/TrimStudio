@@ -1,0 +1,16 @@
+# local runtime / large files
+.venv/
+venv/
+__pycache__/
+*.pyc
+data/
+tools/
+luts/
+review/
+_recon/
+config.json
+*.part
+*.tmp
+*.log
+.DS_Store
+Thumbs.db

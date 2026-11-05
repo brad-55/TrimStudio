@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<title>Trim - 無変換トリミング</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header>
+  <h1>Trim</h1>
+  <span id="status"></span>
+</header>
+<main>
+  <section id="source-panel">
+    <div class="tabs">
+      <button type="button" data-tab="browse" class="active">PC の動画</button>
+      <button type="button" data-tab="upload">アップロード</button>
+      <button type="button" data-tab="recent">履歴</button>
+    </div>
+    <div id="tab-browse">
+      <select id="roots" class="roots"></select>
+      <div id="breadcrumb" class="breadcrumb"></div>
+      <ul id="file-list" class="file-list"></ul>
+    </div>
+    <div id="tab-upload" hidden>
+      <input type="file" id="upload-input" accept="video/*,audio/*,.lrv,.insv,.insp,.360,.mxf,.dv,.vob,.rm,.rmvb,.f4v,.3g2,.m2t,.mod,.tod,.avi,.wmv,.flv,.ts,.m2ts,.mts,.mpg,.mpeg,.3gp,.ogv">
+      <button type="button" id="upload-btn">アップロード開始</button>
+      <div id="upload-progress" class="small"></div>
+    </div>
+    <div id="tab-recent" hidden>
+      <ul id="recent-list" class="file-list"></ul>
+    </div>
+  </section>
+
+  <section id="editor" hidden>
+    <div class="player-wrap">
+      <video id="player" controls playsinline preload="metadata"></video>
+      <img id="frame-preview" class="frame-preview" alt="current frame" hidden>
+    </div>
+    <div class="row">
+      <button type="button" id="frame-dl">現在のフレーム画像を保存</button>
+      <button type="button" id="proxy-btn" hidden>プロキシを生成</button>
+    </div>
+    <div id="video-info" class="small"></div>
+    <div id="meta-summary" class="meta-grid"></div>
+    <details class="meta-details"><summary>詳細メタデータ（全ストリーム・タグ）</summary><div id="meta-detail"></div></details>
+    <div class="timeline">
+      <div id="kf-ticks" class="kf-ticks"></div>
+      <input type="range" id="seek" min="0" max="100000" value="0" step="1">
+    </div>
+    <div class="row">
+      <button type="button" id="step-back-kf">KF&lt;&lt;</button>
+      <button type="button" id="step-back-1s">-1s</button>
+      <button type="button" id="step-back-frame">-1f</button>
+      <span id="pos-label" class="pos">00:00:00.000</span>
+      <button type="button" id="step-fwd-frame">+1f</button>
+      <button type="button" id="step-fwd-1s">+1s</button>
+      <button type="button" id="step-fwd-kf">KF&gt;&gt;</button>
+    </div>
+    <div class="row">
+      <button type="button" id="set-in" class="accent">IN を設定</button>
+      <button type="button" id="set-out" class="accent">OUT を設定</button>
+      <button type="button" id="goto-in">IN へ</button>
+      <button type="button" id="goto-out">OUT へ</button>
+    </div>
+    <div class="times">
+      <label>IN <input id="in-time" type="text" inputmode="numeric" value="00:00:00.000"></label>
+      <label>OUT <input id="out-time" type="text" inputmode="numeric" value="00:00:00.000"></label>
+      <div id="range-info" class="small"></div>
+    </div>
+    <details class="options" open>
+      <summary>書き出し設定</summary>
+      <div class="mode-row">
+        <label><input type="radio" name="mode" value="lossless" checked> 無変換（キーフレーム単位）</label>
+        <label><input type="radio" name="mode" value="reencode"> 再エンコード</label>
+      </div>
+      <div id="reencode-options" hidden>
+        <label class="field">LUT <select id="lut"></select></label>
+        <label class="check"><input type="checkbox" id="stabilize"> スタビライザー</label>
+        <label class="field">クロップ <input id="crop" placeholder="w:h:x:y"></label>
+        <label class="field">エンコーダ <select id="encoder">
+          <option value="libx264">libx264 (H.264)</option>
+          <option value="libx265">libx265 (H.265)</option>
+          <option value="h264_nvenc">h264_nvenc</option>
+          <option value="hevc_nvenc">hevc_nvenc</option>
+        </select></label>
+        <label class="field">映像ビットレート (kbps) <input id="video-bitrate" type="number" min="0" step="100" placeholder="空 = CRF（元の画質基準）"></label>
+        <label class="field">音声ビットレート (kbps) <input id="audio-bitrate" type="number" min="0" step="8" placeholder="空 = 元の音声ビットレートを踏襲"></label>
+        <label class="check"><input type="checkbox" id="audio-reencode"> 音声も再エンコード</label>
+      </div>
+      <label class="field">開始 <select id="in-snap">
+        <option value="prev">直前キーフレーム（既定）</option>
+        <option value="next">直後キーフレーム</option>
+      </select></label>
+      <label class="field">終端 <select id="out-mode">
+        <option value="exact">指定時刻で切る</option>
+        <option value="keyframeBefore">直前キーフレームで切る</option>
+        <option value="keyframeAfter">直後キーフレームまで含める</option>
+      </select></label>
+      <label class="field">出力先 <input id="output-path" placeholder="未入力なら既定（元フォルダ / ビデオフォルダ）"> <button type="button" id="output-browse">参照</button></label>
+      <label class="field">コンテナ <select id="container">
+        <option value="">自動（格納できる形式を選択）</option>
+        <option value="mp4">MP4</option>
+        <option value="mov">MOV</option>
+        <option value="matroska">MKV</option>
+        <option value="webm">WebM</option>
+        <option value="ipod">M4A</option>
+        <option value="mp3">MP3</option>
+        <option value="wav">WAV</option>
+        <option value="flac">FLAC</option>
+        <option value="ogg">OGG</option>
+      </select></label>
+    </details>
+    <div class="row">
+      <button type="button" id="export-btn" class="primary">書き出し</button>
+      <button type="button" id="cancel-btn" hidden>書き出しを停止</button>
+    </div>
+    <div id="progress" class="progress"></div>
+    <div id="result" class="result"></div>
+    <div class="row"><strong class="small">ジョブ一覧</strong><span class="spacer"></span><span id="jobs-summary" class="small"></span></div>
+    <ul id="jobs-list" class="jobs-list"></ul>
+  </section>
+
+  <div id="out-browse" class="modal" hidden>
+    <div class="modal-box">
+      <div class="row"><strong id="out-title">出力先フォルダを選択</strong><button type="button" id="out-close">閉じる</button></div>
+      <select id="out-roots" class="roots"></select>
+      <div class="row">
+        <button type="button" id="out-up">↑ 上へ</button>
+        <span id="out-current" class="small mono"></span>
+      </div>
+      <ul id="out-list" class="file-list"></ul>
+      <div class="row">
+        <input id="out-new-name" type="text" placeholder="新しいフォルダ名">
+        <button type="button" id="out-mkdir">作成</button>
+      </div>
+      <button type="button" id="out-use" class="primary">このフォルダを使う</button>
+      <div id="out-status" class="small"></div>
+    </div>
+  </div>
+  <div id="spinner" class="spinner-overlay" hidden><div class="spinner"></div><div class="spinner-text" id="spinner-text">サーバー応答待ち…</div><button type="button" id="spinEscape" class="spin-escape" hidden>応答がありません — 操作を再開</button></div>
+</main>
+<script src="./app.js"></script>
+</body>
+</html>
