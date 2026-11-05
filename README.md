@@ -200,3 +200,7 @@ e2e_lossless.py と e2e_edge.py は無変換カットの正しさを検証しま
     data/     DB・作業領域・ログ
     docs/     計画とレビュー記録
     tests/    テスト
+
+---
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

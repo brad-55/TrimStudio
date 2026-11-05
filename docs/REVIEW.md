@@ -218,3 +218,13 @@ Agy:
 - 調査は Gemini 3.8 Flash（agy CLI、Web検索ツール）が実施し、MDN overflow-wrap / MDN viewport meta / web.dev RWD basics の3件を引用。
 - 計画: docs/PLAN_LAYOUT.md。原因候補の最優先は置換要素の固有幅（4K video）と、フォーム部品を含む 1fr グリッドの min-width:auto。
 - 実装は未着手（計画の完全Goをもって次段階へ）。
+
+## TrimStudio 採用 UI と要望6件（第33〜34ラウンド）
+
+| ラウンド | レビュアー1: GLM-5.3-flash (effort max) | レビュアー2: Agy gemini-3.8-flash-high |
+|---|---|---|
+| 33 | 却下（Critical 1: 設定 JS が <style> 内に混入し起動時 ReferenceError／Minor 2） | 完全Go |
+| 34 | **完全Go**（Critical 解消を確認。残りは Minor/Info のみ） | **完全Go** |
+
+- 第33ラウンドの Critical は挿入アンカーが CSS のセクションコメントと同名だったことが原因。JS ブロックを <script>（boot() 直前）へ移動し、構造ガード（<style> 内に JS が無い／主要関数が <script> 内）とランタイム・スモーク（tests/smoke_qwen_js.js、ネガティブ fixture で検出確認）を追加。
+- 第34ラウンドのレビュアー1は、DSH 常駐デーモンが本環境のサンドボックスで起動できない（子プロセスのプロファイル書き込みが EPERM、クリーン環境では Node の CSPRNG 初期化が失敗）ため、**同一モデル（z-ai/glm-5.3-flash, reasoning_effort=max）・同一ペルソナ・同一プロンプトを NVIDIA NIM API へ直接送信**して実施した（review/nim_review.py）。判定・指摘水準は従来ラウンドと同じ。
