@@ -249,3 +249,15 @@ Agy:
 
 - 実測: /api/health を tailnet アドレス 100.70.95.77 で 200、Host を MagicDNS 名 desktop-515r9ue.tail0340.ts.net で 200、Host を evil.example.com で 403、LAN（192.168.0.200）で 200。
 - 軽微メモのうち「Host が .ts.net そのもの」は長さガードとテストを追加済み（連続ドットの正規化は将来のバリデーション時のメモとして保留）。
+
+## シークバー／IN・OUT の誤操作対策 実装（第42・43ラウンド）
+
+| ラウンド | レビュアー1: GLM-5.3-flash (effort max) | レビュアー2: Agy gemini-3.8-flash-high |
+|---|---|---|
+| 42 | 条件付きGo（重要1: lostpointercapture の順序で確定済みドラッグが巻き戻る懸念／軽微6件） | **完全Go**（実ファイルを読んで実装を確認） |
+| 43 | **完全Go**（重要1は実装順序＋テストで解消。残りはブロッカーなしの軽微3件） | — |
+
+- 重要1 は実装が既に正しかった（tlUp が確定前に tlDrag をクリア、lostpointercapture は if(tlDrag) ガード）。追加テスト「cancel after up is a no-op」で実証。
+- 軽微対応: ロックON時のドラッグ破棄、ソース切替時のドラッグ破棄、純粋なシークを Undo 履歴に入れない、マルチタッチ無視、実機診断用 tlState() 追加。
+- テスト: tests/test_timeline_logic.js 24 ケース OK、SMOKE OK、check_ui_static OK、回帰 OK。
+- 実機での操作感の確認はユーザー実施（README に操作方法を追記済み）。

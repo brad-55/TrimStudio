@@ -116,14 +116,22 @@ main{display:grid;gap:14px;padding:14px;max-width:1320px;margin:0 auto}
 .tl-wrap{margin-top:14px;padding:12px;background:#0e121a;border:1px solid var(--line);border-radius:var(--radius)}
 .tl-times{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:8px}
 .tl-times b{color:var(--ink)}
-.timeline{position:relative;height:46px;background:#0a0e15;border-radius:9px;border:1px solid var(--line);touch-action:none;cursor:pointer;overflow:hidden}
-.kf{position:absolute;top:0;width:1px;height:12px;background:rgba(255,255,255,.35)}
-.region{position:absolute;top:0;height:100%;background:linear-gradient(180deg,rgba(255,77,61,.28),rgba(255,77,61,.14));border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
-.playhead{position:absolute;top:-3px;width:2px;height:calc(100% + 6px);background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7);z-index:4}
-.playhead::before{content:"";position:absolute;top:-4px;left:-5px;width:12px;height:12px;border-radius:3px;background:#fff;transform:rotate(45deg)}
-.handle{position:absolute;top:0;height:100%;width:16px;z-index:5;cursor:ew-resize;display:flex;align-items:center;justify-content:center}
-.handle::after{content:"";width:4px;height:26px;border-radius:3px;background:var(--acc)}
-.handle.in{left:0}.handle.out{right:0}
+.tl-bars{position:relative;height:84px;touch-action:none;cursor:pointer;-webkit-user-select:none;user-select:none}
+.tl-trim{position:absolute;left:0;right:0;top:0;height:44px;background:#0a0e15;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.tl-seek{position:absolute;left:0;right:0;top:52px;height:30px;background:#0a0e15;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.tl-trim .kf{position:absolute;top:0;width:1px;height:12px;background:rgba(255,255,255,.35)}
+.region{position:absolute;top:0;height:100%;background:linear-gradient(180deg,rgba(255,77,61,.30),rgba(255,77,61,.14));border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
+.playhead{position:absolute;top:52px;width:3px;height:30px;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7);z-index:4;pointer-events:none}
+.playhead::before{content:"";position:absolute;top:-5px;left:-5px;width:13px;height:13px;border-radius:3px;background:#fff;transform:rotate(45deg)}
+.handle{position:absolute;top:0;height:82px;width:44px;margin-left:-22px;z-index:5;cursor:ew-resize;display:flex;justify-content:center;touch-action:none}
+.handle .grip{width:14px;height:100%;border-radius:8px;background:rgba(255,77,61,.35);border:2px solid var(--acc);box-sizing:border-box;transition:background .15s,box-shadow .15s}
+.handle.sel .grip{background:var(--acc);box-shadow:0 0 12px rgba(255,77,61,.65)}
+.handle.locked .grip{background:rgba(140,150,165,.35);border-color:#8c96a5}
+.handle .grip::after{content:"";display:block;width:4px;height:22px;margin:10px auto 0;border-radius:2px;background:#fff;opacity:.85}
+.handle.sel .grip::after{opacity:1;height:30px}
+.tl-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.tl-actions .btn[disabled]{opacity:.45}
+#tlReadout{margin-top:6px;min-height:1.2em}
 
 /* ---------- transport ---------- */
 .transport{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
@@ -294,12 +302,19 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
 
         <div class="tl-wrap">
           <div class="tl-times"><span class="mono" id="curTime">00:00:00.000</span><span class="mono" id="durTime">00:00:00.000</span></div>
-          <div class="timeline" id="timeline">
-            <div class="region" id="region"></div>
-            <div class="handle in" id="hIn"></div>
-            <div class="handle out" id="hOut"></div>
+          <div class="tl-bars" id="tlBars">
+            <div class="tl-trim" id="tlTrim"><div class="region" id="region"></div></div>
+            <div class="tl-seek" id="tlSeek"></div>
+            <div class="handle in" id="hIn"><span class="grip"></span></div>
+            <div class="handle out" id="hOut"><span class="grip"></span></div>
             <div class="playhead" id="playhead"></div>
           </div>
+          <div class="tl-actions">
+            <button class="btn sm" id="undoBtn" disabled>元に戻す</button>
+            <button class="btn sm" id="redoBtn" disabled>やり直す</button>
+            <label class="chk"><input type="checkbox" id="lockInOut"> IN/OUT を固定</label>
+          </div>
+          <div class="hint" id="tlReadout" hidden></div>
         </div>
 
         <div class="transport">
@@ -669,7 +684,7 @@ async function selectSource(id){
     state.source=d.source;state.kind=d.source.kind||"video";state.directPlayable=d.directPlayable;state.variant="original";state.proxyReady=!!d.proxyReady;
     state.durationUs=d.source.durationUs||0;state.fps=d.source.fps||30;
     state.inUs=0;state.outUs=state.durationUs;
-    crop=null;syncCropInputs();renderSource();loadKeyframes(id);setVariant("original");refreshFrames();ensureCrop();drawCrop();updatePlayNotice();
+    crop=null;if(tlDrag)tlCancel();lastHandle=null;undoStack=[];redoStack=[];updateUndoButtons();syncCropInputs();renderSource();loadKeyframes(id);setVariant("original");refreshFrames();ensureCrop();drawCrop();updatePlayNotice();
   }catch(e){showErr("ソース読み込み失敗: "+e.message);}
 }
 function renderSource(){
@@ -739,7 +754,7 @@ async function loadKeyframes(id){
   drawKf();
 }
 function drawKf(){
-  const tl=$("timeline");tl.querySelectorAll(".kf").forEach(n=>n.remove());
+  const tl=$("tlTrim");if(!tl)return;tl.querySelectorAll(".kf").forEach(n=>n.remove());
   if(!state.durationUs)return;
   state.keyframes.forEach(us=>{const d=document.createElement("div");d.className="kf";
     d.style.left=(us/state.durationUs*100)+"%";tl.appendChild(d);});
@@ -748,9 +763,13 @@ function drawKf(){
 /* ---------- timeline ---------- */
 function updateTimeline(){
   const dur=state.durationUs||1;
-  $("region").style.left=(state.inUs/dur*100)+"%";
-  $("region").style.width=((state.outUs-state.inUs)/dur*100)+"%";
-  $("playhead").style.left=(state.curUs/dur*100)+"%";
+  const pct=us=>Math.max(0,Math.min(100,(us/dur)*100));
+  $("region").style.left=pct(state.inUs)+"%";
+  $("region").style.width=Math.max(0,pct(state.outUs)-pct(state.inUs))+"%";
+  $("playhead").style.left=pct(state.curUs)+"%";
+  $("hIn").style.left=pct(state.inUs)+"%";
+  $("hOut").style.left=pct(state.outUs)+"%";
+  updateHandleUI();
 }
 function actualRange(){
   const kf=state.keyframes||[];
@@ -805,13 +824,26 @@ function refreshFrames(){
 }
 
 /* ---------- transport / step ---------- */
+function stepNudge(kind,us){
+  const f=state.fps||30;
+  if(kind==="-1f")return us-Math.round(1e6/f);
+  if(kind==="+1f")return us+Math.round(1e6/f);
+  if(kind==="-1s")return us-1e6;
+  if(kind==="+1s")return us+1e6;
+  if(kind==="-kf"){const p=state.keyframes.filter(k=>k<us-1).pop();return p==null?us:p;}
+  if(kind==="+kf"){const n=state.keyframes.find(k=>k>us+1);return n==null?us:n;}
+  return us;
+}
 function step(kind){
-  const f=state.fps||30;let us=state.curUs;
-  if(kind==="-1f")us-=Math.round(1e6/f);else if(kind==="+1f")us+=Math.round(1e6/f);
-  else if(kind==="-1s")us-=1e6;else if(kind==="+1s")us+=1e6;
-  else if(kind==="-kf"){const p=state.keyframes.filter(k=>k<us-1).pop();if(p!=null)us=p;}
-  else if(kind==="+kf"){const n=state.keyframes.find(k=>k>us+1);if(n!=null)us=n;}
-  seekTo(us);
+  const dur=state.durationUs||0,h=locked()?null:lastHandle;
+  if(h==="in"||h==="out"){
+    const before=snap();
+    if(h==="in")state.inUs=Math.max(0,Math.min(stepNudge(kind,state.inUs),state.outUs));
+    else state.outUs=Math.min(dur,Math.max(stepNudge(kind,state.outUs),state.inUs));
+    updateInOut();updateTimeline();pushUndo(h==="in"?"IN":"OUT",before,snap());refreshFrames();
+    return;
+  }
+  seekTo(stepNudge(kind,state.curUs));
 }
 
 /* ---------- proxy ---------- */
@@ -1147,17 +1179,135 @@ $("setOutBtn").addEventListener("click",()=>{state.outUs=Math.max(state.curUs,st
 $("inTime").addEventListener("change",()=>{const v=parseTime($("inTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.inUs=Math.min(v,state.outUs);updateInOut();updateTimeline();refreshFrames();});
 $("outTime").addEventListener("change",()=>{const v=parseTime($("outTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.outUs=Math.max(v,state.inUs);updateInOut();updateTimeline();refreshFrames();});
 
-/* timeline seek + handle drag */
-let drag=null;
-function tlPos(e){const r=$("timeline").getBoundingClientRect();const x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;return Math.max(0,Math.min(1,x/r.width));}
-$("timeline").addEventListener("pointerdown",e=>{if(!state.source)return;
-  const t=e.target;if(t.id==="hIn")drag="in";else if(t.id==="hOut")drag="out";else drag="seek";
-  $("timeline").setPointerCapture(e.pointerId);tlMove(e);});
-$("timeline").addEventListener("pointermove",e=>{if(drag)tlMove(e);});
-$("timeline").addEventListener("pointerup",()=>{drag=null;refreshFrames();});
-function tlMove(e){const dur=state.durationUs||1;const us=Math.round(tlPos(e)*dur);
-  if(drag==="seek"){seekTo(us);}else if(drag==="in"){state.inUs=Math.min(us,state.outUs);updateInOut();updateTimeline();}
-  else if(drag==="out"){state.outUs=Math.max(us,state.inUs);updateInOut();updateTimeline();}}
+/* ---------- timeline: decision helpers (pure, unit tested) ---------- */
+const TL_GRAB=22;          // 44px wide hit area (finger sized)
+const TL_DEAD=8;           // dead zone before a drag starts
+const TL_TIE=8;            // ambiguous gap between the two handles
+function resolveDrag(movedPx){return Math.abs(movedPx)<TL_DEAD?"tap":"drag";}
+function pickTimelineTarget(x,width,inX,outX,row,lastHandle,lock){
+  const dIn=Math.abs(x-inX),dOut=Math.abs(x-outX);
+  if(dIn>TL_GRAB&&dOut>TL_GRAB){
+    if(row==="seek")return lock?"seek":"seek";
+    if(lock)return "none";
+    return (outX-inX)>=TL_GRAB*2?"range":"none";
+  }
+  if(lock)return row==="seek"?"seek":"none";
+  if(dIn<=TL_GRAB&&dOut>TL_GRAB)return "in";
+  if(dOut<=TL_GRAB&&dIn>TL_GRAB)return "out";
+  if(lastHandle==="in"||lastHandle==="out")return lastHandle;
+  if(Math.abs(dIn-dOut)<TL_TIE)return "out";
+  return dIn<dOut?"in":"out";
+}
+
+/* ---------- timeline: state ---------- */
+let tlDrag=null,lastHandle=null;
+const UNDO_MAX=20;
+let undoStack=[],redoStack=[];
+function snap(){return {inUs:state.inUs,outUs:state.outUs,curUs:state.curUs};}
+function sameSnap(a,b){return a.inUs===b.inUs&&a.outUs===b.outUs&&a.curUs===b.curUs;}
+function locked(){return !!($("lockInOut")&&$("lockInOut").checked);}
+function applySnap(s){state.inUs=s.inUs;state.outUs=s.outUs;state.curUs=s.curUs;
+  $("video").currentTime=state.curUs/1e6;$("curTime").textContent=fmt(state.curUs);
+  updateInOut();updateTimeline();refreshFrames();}
+function pushUndo(label,before,after){
+  if(sameSnap(before,after))return;
+  if(before.inUs===after.inUs&&before.outUs===after.outUs)return;   // pure seek: not an edit,
+  undoStack.push({label:label,before:before,after:after});
+  while(undoStack.length+redoStack.length>UNDO_MAX){(undoStack.length>=redoStack.length?undoStack:redoStack).shift();}
+  redoStack=[];updateUndoButtons();
+}
+function undo(){const e=undoStack.pop();if(!e)return;lastHandle=null;applySnap(e.before);redoStack.push(e);updateUndoButtons();toast("元に戻しました（"+e.label+"）");}
+function redo(){const e=redoStack.pop();if(!e)return;lastHandle=null;applySnap(e.after);undoStack.push(e);updateUndoButtons();toast("やり直しました（"+e.label+"）");}
+function updateUndoButtons(){
+  const u=$("undoBtn"),r=$("redoBtn");if(!u||!r)return;
+  u.disabled=!undoStack.length;r.disabled=!redoStack.length;
+  u.textContent=undoStack.length?"元に戻す（"+undoStack[undoStack.length-1].label+"）":"元に戻す";
+  r.textContent=redoStack.length?"やり直す（"+redoStack[redoStack.length-1].label+"）":"やり直す";
+}
+function setReadout(text){const el=$("tlReadout");if(!el)return;el.textContent=text||"";el.hidden=!text;}
+function updateHandleUI(){
+  ["hIn","hOut"].forEach((id,i)=>{
+    const el=$(id);if(!el)return;
+    el.classList.toggle("sel",lastHandle===(i===0?"in":"out"));
+    el.classList.toggle("locked",locked());
+  });
+  if(tlDrag){return;}
+  if(lastHandle==="in")setReadout("IN を選択中（±1F / ±1s / KF で微調整できます）");
+  else if(lastHandle==="out")setReadout("OUT を選択中（±1F / ±1s / KF で微調整できます）");
+  else setReadout("");
+}
+function tlRect(){return $("tlBars").getBoundingClientRect();}
+function tlUs(x,r){const dur=state.durationUs||1;return Math.round(Math.max(0,Math.min(1,x/r.width))*dur);}
+function tlX(e,r){return e.clientX-r.left;}
+function rowAt(e,r){const y=e.clientY-r.top;return y<50?"trim":"seek";}
+function handlePx(r){const dur=state.durationUs||1;return {inX:state.inUs/dur*r.width,outX:state.outUs/dur*r.width};}
+function tlApply(x,r){
+  if(!tlDrag)return;
+  const dur=state.durationUs||1,us=tlUs(x,r);
+  if(tlDrag.target==="seek"){seekTo(us);setReadout("再生位置 "+fmt(state.curUs));return;}
+  if(tlDrag.target==="in"){state.inUs=Math.min(us,state.outUs);setReadout("IN を "+fmt(state.inUs)+" に移動中");}
+  else if(tlDrag.target==="out"){state.outUs=Math.max(us,state.inUs);setReadout("OUT を "+fmt(state.outUs)+" に移動中");}
+  else if(tlDrag.target==="range"){
+    const delta=us-tlDrag.originUs;let a=tlDrag.before.inUs+delta,b=tlDrag.before.outUs+delta;
+    if(a<0){b-=a;a=0;}if(b>dur){a-=(b-dur);b=dur;}
+    state.inUs=Math.max(0,a);state.outUs=Math.min(dur,b);
+    setReadout("切出範囲 "+fmt(state.inUs)+" - "+fmt(state.outUs)+" に移動中");
+  }
+  updateInOut();updateTimeline();
+}
+function tlDown(e){
+  if(tlDrag)return;                                                // one pointer at a time
+  if(!state.source||state.durationUs<=0)return;
+  const r=tlRect(),x=tlX(e,r),row=rowAt(e,r),p=handlePx(r);
+  const target=pickTimelineTarget(x,r.width,p.inX,p.outX,row,lastHandle,locked());
+  if(target==="none"){lastHandle=null;updateHandleUI();return;}
+  tlDrag={target:target,x0:e.clientX,before:snap(),originUs:tlUs(x,r),moved:false};
+  if(target==="in"||target==="out"){lastHandle=target;}
+  try{$("tlBars").setPointerCapture(e.pointerId);}catch(_){}
+  e.preventDefault();
+}
+function tlMoveEv(e){
+  if(!tlDrag)return;
+  if(!tlDrag.moved&&resolveDrag(e.clientX-tlDrag.x0)==="tap")return;
+  tlDrag.moved=true;
+  const r=tlRect();tlApply(tlX(e,r),r);
+}
+function tlState(){return {dragging:!!tlDrag,lastHandle:lastHandle,undo:undoStack.length,redo:redoStack.length,
+  inUs:state.inUs,outUs:state.outUs,curUs:state.curUs,lock:locked()};}
+function tlUp(e){
+  // NOTE: lostpointercapture also fires after a normal pointerup. Clearing tlDrag
+  // before committing makes the later lostpointercapture handler a no-op.
+  if(!tlDrag)return;
+  const drag=tlDrag;tlDrag=null;
+  const r=tlRect();
+  if(drag.moved){
+    const label=drag.target==="in"?"IN":drag.target==="out"?"OUT":drag.target==="range"?"切出範囲":"再生位置";
+    pushUndo(label,drag.before,snap());
+  }else if(drag.target==="seek"){
+    seekTo(tlUs(tlX(e,r),r));
+  }else if(drag.target==="in"||drag.target==="out"){
+    lastHandle=drag.target;
+}else{lastHandle=null;}
+  updateHandleUI();updateUndoButtons();refreshFrames();
+}
+function tlCancel(){
+  if(!tlDrag)return;
+  const before=tlDrag.before;tlDrag=null;
+  applySnap(before);updateHandleUI();
+}
+function bindTimeline(){
+  const bars=$("tlBars");if(!bars)return;
+  bars.addEventListener("pointerdown",tlDown);
+  bars.addEventListener("pointermove",tlMoveEv);
+  bars.addEventListener("pointerup",tlUp);
+  bars.addEventListener("pointercancel",tlCancel);
+  bars.addEventListener("lostpointercapture",()=>{if(tlDrag)tlCancel();});
+  $("undoBtn").addEventListener("click",undo);
+  $("redoBtn").addEventListener("click",redo);
+  $("lockInOut").addEventListener("change",()=>{if(tlDrag)tlCancel();updateHandleUI();toast($("lockInOut").checked?"IN/OUT を固定しました（シークのみ）":"IN/OUT を動かせるようにしました");});
+  updateUndoButtons();
+}
+bindTimeline();
 
 $("cancelJobBtn").addEventListener("click",async()=>{if(!state.activeJobId)return;
   try{await api("/api/jobs/"+state.activeJobId+"/cancel",{method:"POST"});toast("停止を要求しました");}
