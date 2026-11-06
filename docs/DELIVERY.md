@@ -60,6 +60,10 @@
 - 再生不可の案内文は書き出しモードに追従（無変換 / 再エンコード）し、video の MediaError 種別で「形式非対応」と「読み込み失敗」を出し分ける。前回の保存先フォルダが無効な場合はビデオフォルダへフォールバック
 - 仕様メモ: 回転つき動画のクロップ座標は「表示向き」基準に統一（修正前の誤った座標系で作られた既存ジョブの記録とは意味が変わる）
 - 仕様メモ: LUT の変更系 API（dir / reveal / upload）は既存の CSRF トークン必須・プライベート IP 限定・許可ルート検証の対象内
+- Tailscale（tailnet）経由の利用に対応: 送信元に 100.64.0.0/10（CGNAT）を追加し、Host は列挙済み自己名・Tailscale CLI が返す自分の Tailscale 名・（tailnet クライアントからのときのみ）*.ts.net を許可。自分の Tailscale アドレスは Host としても許可。DNS 解決は行わず（DNS リバインディング対策維持）、config の allowTailnet（既定 true）で無効化できる
+- tailnet 情報は Tailscale CLI の status --json を 300 秒キャッシュ。失敗時は空で継続し、IP はローカルインターフェース一覧から救済
+- tests/e2e_tailnet.py を新設（tailnet アドレスが無ければ SKIP: loopback 200 / tailnet 200 / 外部 Host 403 / *.ts.net 200 / UI 200）。unit テストに境界・大小文字・末尾ドット・サフィックス位置・CLI 失敗フォールバック・IPv6 ULA・裸の .ts.net 拒否を追加
+- README に「外出先から使う（Tailscale / tailnet）」節を追加（導入・アドレス確認・ブラウザでの開き方・allowTailnet・strongMode 推奨・信頼前提・CGNAT 共有の注記）。API.md に送信元と Host の条件、/api/config の allowTailnet を追記
 - tests/e2e_fsops.py: エクスプローラのコピー/移動（ファイル・フォルダ、衝突時の連番、許可ルート外 400、存在しないソース 404、必須項目欠落 400、大きなコピーの停止で .part が残らないこと）と、ジョブ応答の sourceName を検証
 - 【不具合修正】ローディング表示が CSS の `display:flex` により `hidden` 属性を無視して常時表示され、起動直後から画面が塞がれて操作できない状態になっていた。両 UI に `[hidden]{display:none!important}` を追加して解消（クラスで display を指定した要素でも hidden が必ず優先される）
 - 応答が返らない場合の対策: API 呼び出しを AbortController でタイムアウト（通常60秒 / アップロード30分）。25秒で「応答がありません — 操作を再開」ボタンを出し、手動でもロック解除できる。tests/check_ui_static.py で再発防止を検証（22項目）

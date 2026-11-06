@@ -16,6 +16,7 @@ DEFAULT_CONFIG = {
     "workCacheBytes": 21474836480,
     "maxUploadBytes": 68719476736,
     "strongMode": False,
+    "allowTailnet": True,
     "previewMode": "auto",
     "jobConcurrency": 2,
     "activeWindowSeconds": 600,

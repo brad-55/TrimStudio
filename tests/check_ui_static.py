@@ -30,6 +30,8 @@ main_py = read(ROOT + r"\app\main.py")
 ffmpeg_py = read(ROOT + r"\app\ffmpeg_tools.py")
 exports_py = read(ROOT + r"\app\exports.py")
 config_py = read(ROOT + r"\app\config.py")
+security_py = read(ROOT + r"\app\security.py")
+unit_py = read(ROOT + r"\tests\test_unit.py")
 readme_md = read(ROOT + r"\README.md")
 
 # 1) [hidden] must beat class display rules (this bug froze both UIs behind the spinner)
@@ -200,5 +202,13 @@ check("readme: other features moved down", "## 特徴" in readme_md and "## そ�
 check("qwen: playback notice matches the export mode", "function exportHowText(" in qwen)
 check("qwen: video errors are told apart", "vid.error&&vid.error.code" in qwen)
 check("qwen: invalid remembered folder falls back", "function browseTo(path,fresh)" in qwen and "前回のフォルダを開けないためビデオフォルダを開きました" in qwen)
+
+# 21) tailnet (Tailscale) access
+check("security: tailnet range helpers", "TAILNET_NETWORKS" in security_py and "def is_tailnet_ip(" in security_py and "def is_allowed_source(" in security_py)
+check("security: own tailnet identity", "def tailnet_info(" in security_py and "TailscaleIPs" in security_py and "ts.net" in security_py)
+check("main: tailnet sources and hosts allowed", "is_allowed_source(client, allow_tailnet)" in main_py and "security.tailnet_info()" in main_py and "allowTailnet" in main_py)
+check("config: allowTailnet switch", "\"allowTailnet\": True" in config_py)
+check("unit: tailnet cases", "is_tailnet_ip" in unit_py and "ts.net" in unit_py and "is_allowed_source" in unit_py)
+check("readme: tailscale section", "外出先から使う（Tailscale / tailnet）" in readme_md and "tailscale ip -4" in readme_md and "allowTailnet" in readme_md)
 print("RESULT:", "OK" if fails == 0 else "FAIL(%d)" % fails)
 sys.exit(0 if fails == 0 else 1)

@@ -91,11 +91,16 @@ def create_app():
     @app.middleware("http")
     async def guard(request: Request, call_next):
         client = request.client.host if request.client else ""
-        if not security.is_private_ip(client):
-            return err("lan_only", "access is limited to the local network", 403)
+        allow_tailnet = bool(cfg.get("allowTailnet", True))
+        if not security.is_allowed_source(client, allow_tailnet):
+            return err("lan_only", "access is limited to the local network or tailnet", 403)
         refresh_ips()
+        tailnet_names, tailnet_ips = security.tailnet_info() if allow_tailnet else (frozenset(), frozenset())
         host = request.headers.get("host", "")
-        if not security.host_allowed(host, app.state.local_ips, app.state.self_names):
+        allowed_ips = set(app.state.local_ips) | set(tailnet_ips)
+        if not security.host_allowed(host, allowed_ips, app.state.self_names,
+                                     allow_tailnet, tailnet_names, tailnet_ips,
+                                     security.is_tailnet_ip(client)):
             return err("bad_host", "host header is not allowed", 403)
         path = request.url.path
         strong = bool(cfg.get("strongMode"))

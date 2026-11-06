@@ -1,11 +1,11 @@
 # Trim API 仕様（UI 契約）
 
-すべて同一オリジン。JSON。時刻の単位は整数マイクロ秒（us）。POST/DELETE はヘッダ X-Trim-Token（strongMode では Cookie）が必要。
+すべて同一オリジン。JSON。時刻の単位は整数マイクロ秒（us）。POST/DELETE はヘッダ X-Trim-Token（strongMode では Cookie）が必要。 アクセス元はプライベート IP（RFC1918 / ULA / リンクローカル / ループバック）と Tailscale の tailnet（100.64.0.0/10、config の allowTailnet が true のとき）。Host は自分の名前（列挙した自ホスト名・Tailscale 名 *.ts.net）と自分のアドレス（LAN・Tailscale）のみ許可。
 
 - GET /api/health -> {ok, ffmpeg, ffmpegVersion, version}
 - GET /api/token -> {token}（strongMode では 403。POST /api/auth を使う）
 - POST /api/auth {token} -> {ok}（strongMode 用。HttpOnly Cookie を発行）
-- GET /api/config -> {allowedRoots, defaultUploadOutput, videosDir, strongMode, previewMode, defaultUi, maxUploadBytes}（videosDir は Windows のビデオフォルダで、動画選択の初期表示に使う）
+- GET /api/config -> {allowedRoots, defaultUploadOutput, videosDir, strongMode, allowTailnet, previewMode, defaultUi, maxUploadBytes}（videosDir は Windows のビデオフォルダで、動画選択の初期表示に使う）
 - GET /api/roots -> {roots:[{path,name,exists}]}
 - GET /api/browse?path= -> {path, parent, entries:[{name,path,dir,size}]}（動画・音声拡張子のみ）
 - POST /api/fs/mkdir {path} -> {path}（許可ルート内に1階層だけフォルダを作成）

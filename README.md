@@ -108,6 +108,26 @@ netsh advfirewall firewall add rule name="Trim 8003" dir=in action=allow protoco
 - **書き出しで「書き込めません」と出る**: 保存先のフォルダに書き込み権限がありません。デスクトップや `C:\TrimStudio` の下など、書き込める場所に変更してください。
 - **読み込んだファイルが再生できない**: 下の「H.265 / 10bit のファイルを読み込んだとき」を見て、プロキシを生成してください。
 
+## 外出先から使う（Tailscale / tailnet）
+
+自宅の Wi-Fi をはなれた場所（モバイル通信）からも使いたいときは、**Tailscale**（無料で使える VPN）を使います。
+同じ tailnet に参加させた端末だけがつながります。
+
+1. **PC とスマホの両方に Tailscale を入れ、同じアカウントでログイン**します。
+2. PC の tailnet アドレスを確認します。
+   - タスクトレイの Tailscale アイコンにカーソルを合わせると自分の PC 名と IP が出ます。
+   - 黒い画面で確認する場合: `tailscale ip -4`（例: 100.70.95.77）
+3. スマホのブラウザで次のどちらかを開きます。
+   - `http://<PC の tailnet アドレス>:8003/`（例: http://100.70.95.77:8003/）
+   - MagicDNS が有効なら `http://<PC 名>:8003/`（例: http://desktop-515r9ue:8003/）
+4. 初回は Windows のファイアウォールで許可してください（手順は上のステップ4と同じ）。
+
+- Tailscale のアドレス（100.64.0.0/10）と `*.ts.net` の名前は**自動で許可**されます。設定 `allowTailnet` を `false` にすると tailnet 経由を無効にできます。
+- 外出先から使うときは、`config.json` の `strongMode` を `true` にするのがおすすめです（起動時に表示されるトークンを入れるまで操作できなくなります）。
+- tailnet に入っている端末は**信頼できる前提**です。知らない人を tailnet に招待しないでください。
+- 100.64.0.0/10 は ISP が社内・顧客側で使うこともある共有アドレスです。通常の家庭回線では問題ありませんが、同じ 100.64.0.0/10 を LAN に使う特殊な環境では、その LAN の端末もアクセス元として扱われます（心配な場合は `allowTailnet` を false にしてください）。
+- 自宅の Wi-Fi からも、tailnet のアドレスからも、どちらでも同じように使えます。
+
 ## 使い方
 
 1. スマホで URL を開きます。
@@ -243,6 +263,7 @@ netsh advfirewall firewall add rule name="Trim 8003" dir=in action=allow protoco
 - `maxUploadBytes`: アップロード上限
 - `previewMode`: プレビュー方式（auto: 自動 / original: 元動画 / proxy: 軽いプレビュー動画）
 - `strongMode`: トークン入力を必須にする保護モード
+- `allowTailnet`: Tailscale（tailnet）経由のアクセスを許可する（既定 true。false で無効）
 
 ## テスト
 

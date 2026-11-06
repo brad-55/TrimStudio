@@ -119,6 +119,50 @@ def main():
     check(not security.host_allowed("evil.example.com:8003", {"127.0.0.1"}, names), "foreign name rejected")
     check(not security.host_allowed("192.168.0.200:8003", {"127.0.0.1"}, names), "unlisted ip rejected")
     check(security.host_allowed("192.168.0.200:8003", {"192.168.0.200"}, names), "listed ip allowed")
+    check(security.is_tailnet_ip("100.70.95.77"), "tailnet ip allowed")
+    check(security.is_tailnet_ip("100.64.0.1"), "tailnet range start allowed")
+    check(security.is_tailnet_ip("100.127.255.254"), "tailnet range end allowed")
+    check(not security.is_tailnet_ip("100.128.0.1"), "outside tailnet range rejected")
+    check(not security.is_tailnet_ip("192.168.0.5"), "lan ip is not tailnet")
+    check(not security.is_tailnet_ip("fd00::1"), "v6 ula is not a tailnet ipv4")
+    check(security.is_allowed_source("100.70.95.77", True), "tailnet source allowed when enabled")
+    check(not security.is_allowed_source("100.70.95.77", False), "tailnet source rejected when disabled")
+    check(not security.is_allowed_source("8.8.8.8", True), "public source rejected")
+    check(security.is_allowed_source("192.168.1.10", True), "lan source still allowed")
+    check(security.is_allowed_source("fd00::1", True), "v6 ula source still allowed")
+    check(security.host_allowed("pc.tailnet.ts.net:8003", {"127.0.0.1"}, names, True, set(), set(), True),
+          "ts.net host allowed from the tailnet")
+    check(not security.host_allowed("pc.tailnet.ts.net:8003", {"127.0.0.1"}, names, True, set(), set(), False),
+          "ts.net host rejected from a lan client")
+    check(not security.host_allowed("pc.tailnet.ts.net:8003", {"127.0.0.1"}, names, False),
+          "ts.net host rejected when tailnet disabled")
+    check(security.host_allowed("100.70.95.77:8003", set(), names, True, set(), {"100.70.95.77"}),
+          "own tailnet ip allowed as host")
+    check(not security.host_allowed("100.70.95.77:8003", set(), names, True, set(), set()),
+          "unknown tailnet ip rejected as host")
+    check(not security.host_allowed("evil.example.com:8003", {"127.0.0.1"}, names, True),
+          "foreign name still rejected")
+    check(security.host_allowed("DESKTOP-515R9UE.Tail0340.TS.NET.:8003", {"127.0.0.1"}, names, True, set(), set(), True),
+          "ts.net host is case and trailing-dot insensitive")
+    check(not security.host_allowed("evil.ts.net.attacker.com:8003", {"127.0.0.1"}, names, True, set(), set(), True),
+          "ts.net suffix must be terminal")
+    check(not security.host_allowed("evilts.net:8003", {"127.0.0.1"}, names, True, set(), set(), True),
+          "evilts.net is not a ts.net name")
+    check(security.host_allowed("desktop-515r9ue.tail0340.ts.net:8003", {"127.0.0.1"}, names, True,
+                                {"desktop-515r9ue.tail0340.ts.net"}, set(), False),
+          "enumerated tailnet name works even without a tailnet client")
+    check(security.host_allowed("100.70.95.77:8003", {"100.70.95.77"}, names, True, set(), set(), False),
+          "tailnet ip allowed when it is a local address (CLI fallback)")
+    check(security.is_allowed_source("fd7a:115c:a1e0::1", True), "v6 tailnet (ULA) source allowed")
+    check(not security.host_allowed(".ts.net:8003", {"127.0.0.1"}, names, True, set(), set(), True),
+          "bare .ts.net host rejected")
+    tn_names, tn_ips = security.tailnet_info(0)
+    if tn_names or tn_ips:
+        check(all(n.endswith(".ts.net") for n in tn_names), "tailnet names look like ts.net: " + str(sorted(tn_names)))
+        check(all(security.is_tailnet_ip(i) or ":" in i for i in tn_ips),
+              "tailnet ips are tailnet addresses: " + str(sorted(tn_ips)))
+    print("tailnet self:", sorted(tn_names), sorted(tn_ips))
+
     check(sources.security_path_sanitize("CON.mp3").startswith("_"), "reserved upload name")
 
     print("unit checks: OK")

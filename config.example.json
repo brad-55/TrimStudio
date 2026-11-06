@@ -11,6 +11,7 @@
   "workCacheBytes": 21474836480,
   "maxUploadBytes": 68719476736,
   "strongMode": false,
+  "allowTailnet": true,
   "previewMode": "auto",
   "jobConcurrency": 2,
   "activeWindowSeconds": 600,
