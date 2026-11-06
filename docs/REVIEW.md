@@ -261,3 +261,14 @@ Agy:
 - 軽微対応: ロックON時のドラッグ破棄、ソース切替時のドラッグ破棄、純粋なシークを Undo 履歴に入れない、マルチタッチ無視、実機診断用 tlState() 追加。
 - テスト: tests/test_timeline_logic.js 24 ケース OK、SMOKE OK、check_ui_static OK、回帰 OK。
 - 実機での操作感の確認はユーザー実施（README に操作方法を追記済み）。
+
+## README 英語併記（第44・45ラウンド）
+
+| ラウンド | レビュアー1: GLM-5.3-flash (effort max) | レビュアー2: Agy gemini-3.8-flash-high |
+|---|---|---|
+| 44 | 条件付きGo（中2: 見出しの曖昧さ・無変換/無劣化の訳し分け／低3件） | **完全Go**（両ファイルを読んで比較） |
+| 45 | **完全Go**（中2・低3件の解消を確認。残りは任意の1件のみ） | — |
+
+- README.md（日本語・既定）＋ README.en.md（英語）を相互リンクで切替。見出しは 30 対 30 で対応。
+- 反映: Output folder (defaults and verification)／lossless (no re-encoding) の併記と因果の明示／LUT (colour conversion files)／File Explorer 表記／Features 見出し／用語集の調整。
+- check_ui_static に両 README の切替リンク・導入4ステップ・特徴3点・画像・バッジ・Tailscale・タイムラインの静的ガードを追加（RESULT OK）。

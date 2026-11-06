@@ -67,6 +67,7 @@
 - シークバー／トリミングバーの誤操作対策を実装（docs/PLAN_TIMELINE.md v0.4.1 準拠）: 上段=トリミングバー（IN/OUT）と下段=シークバー（再生位置）に分離。当たり判定はつまみ中心から左右 22px（44px 幅）で、下段でもつまみの列はつまみが反応する。8px のデッドゾーン（触っただけでは値が変わらない）、ドラッグ中の対象強調と時刻表示、Undo/Redo（1操作=1件・最大20件・何が戻るか表示）、IN/OUT 固定トグル、つまみを選択すると ±1F/±1s/±KF がそのつまみを動かす、上段中央のドラッグで切出範囲を平行移動（長さ保持・端でクランプ）、IN/OUT は交差時クランプ、pointercancel は破棄
 - IN/OUT ハンドルを実際の IN/OUT 位置に描画するよう変更（旧実装はバー両端に固定で位置が動かず、位置が分かりにくかった）
 - tests/test_timeline_logic.js を新設（判定を純関数 pickTimelineTarget / resolveDrag として切り出し、20ケースを自動検証）。tests/_qwen_stub.js に DOM スタブを共通化し smoke_qwen_js.js と共用
+- README を英語併記に: README.md（日本語のまま）と README.en.md（英語訳）を相互リンク（[English](README.en.md) / [日本語](README.md)）で切り替え可能に。導入4ステップ・特徴3点・画面イメージ・Tailscale・タイムライン操作・セキュリティ・設定・テスト・ディレクトリを英語でも記載し、check_ui_static に両 README の言語切替リンクと主要項目の静的ガードを追加
 - tests/e2e_fsops.py: エクスプローラのコピー/移動（ファイル・フォルダ、衝突時の連番、許可ルート外 400、存在しないソース 404、必須項目欠落 400、大きなコピーの停止で .part が残らないこと）と、ジョブ応答の sourceName を検証
 - 【不具合修正】ローディング表示が CSS の `display:flex` により `hidden` 属性を無視して常時表示され、起動直後から画面が塞がれて操作できない状態になっていた。両 UI に `[hidden]{display:none!important}` を追加して解消（クラスで display を指定した要素でも hidden が必ず優先される）
 - 応答が返らない場合の対策: API 呼び出しを AbortController でタイムアウト（通常60秒 / アップロード30分）。25秒で「応答がありません — 操作を再開」ボタンを出し、手動でもロック解除できる。tests/check_ui_static.py で再発防止を検証（22項目）

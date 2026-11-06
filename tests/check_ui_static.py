@@ -33,6 +33,7 @@ config_py = read(ROOT + r"\app\config.py")
 security_py = read(ROOT + r"\app\security.py")
 unit_py = read(ROOT + r"\tests\test_unit.py")
 readme_md = read(ROOT + r"\README.md")
+readme_en_md = read(ROOT + r"\README.en.md")
 
 # 1) [hidden] must beat class display rules (this bug froze both UIs behind the spinner)
 check("web css: [hidden] guard", re.search(r"\[hidden\]\s*\{\s*display:\s*none\s*!important", web_css) is not None)
@@ -226,5 +227,13 @@ check("timeline: drag feedback", "id=\"tlReadout\"" in qwen and "に移動中" i
 check("timeline: steps follow the selection", "const dur=state.durationUs||0,h=locked()?null:lastHandle;" in qwen)
 check("timeline: selection resets per source", "lastHandle=null;undoStack=[];redoStack=[];" in qwen)
 check("timeline: logic has unit tests", "tests/test_timeline_logic.js" in "" or True)
+
+# 23) bilingual README
+check("readme: language switcher both ways", "[English](README.en.md)" in readme_md and "[日本語](README.md)" in readme_en_md)
+check("readme en: keeps the four-step setup", "Download ZIP" in readme_en_md and "Add python.exe to PATH" in readme_en_md and "start.cmd" in readme_en_md and "netsh advfirewall" in readme_en_md)
+check("readme en: keeps the three highlights", "Runs on your Windows PC" in readme_en_md and "from your phone" in readme_en_md and "Trimming is lossless" in readme_en_md)
+check("readme en: screenshots and badge", "docs/images/preview.jpg" in readme_en_md and "docs/images/export.jpg" in readme_en_md and "powered_by-dsh" in readme_en_md)
+check("readme en: tailscale and timeline sections", "Tailscale / tailnet" in readme_en_md and "Seek bar and IN/OUT" in readme_en_md and "allowTailnet" in readme_en_md)
+check("readme en: has headings", readme_en_md.count("\n## ") >= 12)
 print("RESULT:", "OK" if fails == 0 else "FAIL(%d)" % fails)
 sys.exit(0 if fails == 0 else 1)
