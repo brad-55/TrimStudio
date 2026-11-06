@@ -12,6 +12,7 @@ DEFAULT_CONFIG = {
     "allowedRoots": [],
     "denyRoots": [],
     "dataDir": "data",
+    "lutsDir": "luts",
     "workCacheBytes": 21474836480,
     "maxUploadBytes": 68719476736,
     "strongMode": False,
@@ -88,7 +89,8 @@ class Config:
 
     @property
     def luts_dir(self):
-        return self.resolve_dir(ROOT / "luts")
+        configured = self.data.get("lutsDir")
+        return self.resolve_dir(configured or (ROOT / "luts"))
 
     @property
     def tools_dir(self):

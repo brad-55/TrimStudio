@@ -432,6 +432,25 @@ def _bitrate_option(options, key):
     return number if number > 0 else None
 
 
+def video_rotation(cfg, source, video):
+    """Display rotation in degrees for the crop maths.
+
+    Records created before the rotation field existed have no stored value, so
+    fall back to a fresh ffprobe of the source file.
+    """
+    if isinstance(video, dict) and "rotation" in video:
+        return int(video.get("rotation") or 0)
+    try:
+        _ff, fp = ffmpeg_tools.ffmpeg_paths(cfg)
+        data = ffmpeg_tools.probe(fp, source["path"])
+        info = ffmpeg_tools.summarize(data)
+        st = next((x for x in info.get("streams", [])
+                   if x.get("type") == "video" and not x.get("attached_pic")), None)
+        return int((st or {}).get("rotation") or 0)
+    except Exception:
+        return 0
+
+
 def encoder_plan(options, source):
     info = streams_to_info(source)
     video = info.get("video") or {}
@@ -451,8 +470,11 @@ def encoder_plan(options, source):
         args = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-pix_fmt", "yuv420p"] + (rate or ["-cq", "19"])
         return args, "yuv420p"
     if encoder == "hevc_nvenc":
-        args = ["-c:v", "hevc_nvenc", "-preset", "p5", "-rc", "vbr", "-pix_fmt", "p010le"] + (rate or ["-cq", "21"])
-        return args, "p010le"
+        # p010le only for 10-bit/HDR sources: an 8-bit source must stay 8-bit
+        # (10-bit output doubles the cost, breaks browser preview and adds nothing).
+        pix = "p010le" if ten_bit else "yuv420p"
+        args = ["-c:v", "hevc_nvenc", "-preset", "p5", "-rc", "vbr", "-pix_fmt", pix] + (rate or ["-cq", "21"])
+        return args, pix
     args = ["-c:v", "libx264", "-pix_fmt", "yuv420p"] + (rate or ["-crf", "18"])
     return args, "yuv420p"
 
@@ -494,10 +516,16 @@ def build_reencode_args(cfg, source, out, container, selected, start_us, end_us,
         height = max(2, int(crop["h"]) & ~1)
         src_w = int(video.get("width") or width)
         src_h = int(video.get("height") or height)
-        width = min(width, src_w & ~1)
-        height = min(height, src_h & ~1)
-        x = max(0, min(int(crop["x"]) & ~1, src_w - width))
-        y = max(0, min(int(crop["y"]) & ~1, src_h - height))
+        # The UI frames the crop on the rotated (display) picture and ffmpeg
+        # autorotates before the filters, so clamp/offset in display orientation.
+        if video_rotation(cfg, source, video) % 180 == 90:
+            disp_w, disp_h = src_h, src_w
+        else:
+            disp_w, disp_h = src_w, src_h
+        width = min(width, disp_w & ~1)
+        height = min(height, disp_h & ~1)
+        x = max(0, min(int(crop["x"]) & ~1, disp_w - width))
+        y = max(0, min(int(crop["y"]) & ~1, disp_h - height))
         crop_filter = "crop=%d:%d:%d:%d" % (width, height, x, y)
     lut_filter = None
     if lut_name:

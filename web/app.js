@@ -163,7 +163,14 @@
     $("export-btn").addEventListener("click", doExport);
     $("proxy-btn").addEventListener("click", buildProxy);
     if ($("frame-dl")) { $("frame-dl").addEventListener("click", downloadFrame); }
-    $("player").addEventListener("error", function () { if (state.variant !== "proxy") { $("proxy-btn").hidden = false; } });
+    $("player").addEventListener("error", function () {
+    if (state.variant !== "proxy") {
+      $("proxy-btn").hidden = false;
+      setStatus("この形式（H.265 / 10bit など）はブラウザで直接再生できません。「プロキシを生成」を押してください（書き出しは元の画質のまま無変換です）");
+    } else {
+      setStatus("プロキシを再生できません。もう一度生成してください");
+    }
+  });
     document.querySelectorAll("input[name=mode]").forEach(function (r) {
       r.addEventListener("change", function () { $("reencode-options").hidden = (this.value !== "reencode"); updateRangeInfo(); });
     });

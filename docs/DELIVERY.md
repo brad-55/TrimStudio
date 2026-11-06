@@ -48,6 +48,18 @@
 - メタデータ表示を従来 UI の形式に刷新（auto-fit グリッド＋ストリームごとの box。コンテナ情報・タグ・全ストリーム項目）
 - 承認済み PLAN_LAYOUT の対策を実装: .viewer video の max-width/min-width、.stage/.viewer/フォームグリッドを minmax(0,1fr)、.inp/.time-inp の min-width:0、.sheet-foot の折返し、viewport meta から user-scalable を削除、overflow-x を clip に、?debug=1 のレイアウト診断（screen.width 基準・body/html と fixed・スクロールコンテナ内は除外）
 - tests/smoke_qwen_js.js: web-qwen のインライン <script> を DOM スタブ付きで実際に実行し、トップレベル参照エラー（<style> 内に JS が混入して関数が未定義になる等）を検出するスモークテスト。check_ui_static にも「<style> 内に JS が無い」「主要関数が <script> 内にある」構造ガードを追加
+- 再生できない不具合の原因と対策: (a) hevc_nvenc が常に p010le（10bit）で書き出していたため 8bit ソースでも Main10 になり、ブラウザで再生できなかった → 10bit/HDR ソースのみ 10bit、それ以外は yuv420p。(b) 非対応形式で動画要素が無言で失敗していた → /api/sources/{id} に proxyReady を追加し、プレビューに通知（H.265/10bit は非対応・プロキシで再生可）と video error ハンドラを追加。旧 UI も理由を表示
+- 回転つき動画のクロップ修正: ffprobe の display matrix / rotate タグから rotation を取得し（既存レコードは書き出し時に再取得）、90/270 度のときは表示向き寸法でクランプ・オフセットを計算。回転つき 1180x2556 に対して 2098x1180 を要求した検証で、以前は 1180x1180・10bit、修正後は 2098x1180・8bit になることを実測
+- 保存先の表示と検証: 出力先の「参照」は前回使った保存先フォルダ（localStorage の outDir）または現在値のフォルダから開き、選択時に保存。POST /api/paths/validate は path が空でも既定の保存先（ローカルはソースと同じフォルダ / アップロードはビデオフォルダ）を解決して isDefault 付きで返す
+- LUT 置き場 UI: GET /api/luts が dir を返し、POST /api/luts/dir で変更（config.json の lutsDir に保存）、POST /api/luts/reveal で PC のエクスプローラを開き、POST /api/luts/upload で .cube/.3dl/.dat を追加（64MB 上限、名前サニタイズ、同名は連番）。UI は「置き場を指定 / PC で開く / 再読込 / LUT を追加」
+- フレーム画像の保存を刷新: ボタンをアクセント配色にし、モーダルで画像を表示。「写真に保存 / 共有」は navigator.share（iPhone は共有メニューの「画像を保存」で写真ライブラリ）、「ダウンロード」は a download、長押しでの保存も案内
+- クロップの「全体」ボタンは、全体選択時のみ強調表示
+- README を初心者向けに全面改訂（特徴3点＋その他の機能、Download ZIP / Python の PATH / start.cmd / スマホからの URL の4ステップとトラブルシュート）
+- tests/check_ui_static.py に上記の静的ガードを追加（計73項目）
+- 追加実測（レビュー指摘の補完）: 10bit HEVC + rotation=90（1180x2556, yuv420p10le）のソースに 2098x1180 のクロップを指定 → 出力は hevc Main 10 / 2098x1180 / yuv420p10le（10bit 維持＋表示向きクロップ）。回転動画のフレーム抽出は表示向き（2556x1180 相当の 1920x886）で、横向き画像が保存される
+- 再生不可の案内文は書き出しモードに追従（無変換 / 再エンコード）し、video の MediaError 種別で「形式非対応」と「読み込み失敗」を出し分ける。前回の保存先フォルダが無効な場合はビデオフォルダへフォールバック
+- 仕様メモ: 回転つき動画のクロップ座標は「表示向き」基準に統一（修正前の誤った座標系で作られた既存ジョブの記録とは意味が変わる）
+- 仕様メモ: LUT の変更系 API（dir / reveal / upload）は既存の CSRF トークン必須・プライベート IP 限定・許可ルート検証の対象内
 - tests/e2e_fsops.py: エクスプローラのコピー/移動（ファイル・フォルダ、衝突時の連番、許可ルート外 400、存在しないソース 404、必須項目欠落 400、大きなコピーの停止で .part が残らないこと）と、ジョブ応答の sourceName を検証
 - 【不具合修正】ローディング表示が CSS の `display:flex` により `hidden` 属性を無視して常時表示され、起動直後から画面が塞がれて操作できない状態になっていた。両 UI に `[hidden]{display:none!important}` を追加して解消（クラスで display を指定した要素でも hidden が必ず優先される）
 - 応答が返らない場合の対策: API 呼び出しを AbortController でタイムアウト（通常60秒 / アップロード30分）。25秒で「応答がありません — 操作を再開」ボタンを出し、手動でもロック解除できる。tests/check_ui_static.py で再発防止を検証（22項目）

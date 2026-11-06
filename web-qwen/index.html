@@ -86,6 +86,13 @@ main{display:grid;gap:14px;padding:14px;max-width:1320px;margin:0 auto}
 @media(max-width:860px){.stage{grid-template-columns:minmax(0,1fr)}}
 .viewer{position:relative;background:#05070b;border-radius:var(--radius);overflow:hidden;aspect-ratio:16/9;display:grid;grid-template-columns:minmax(0,1fr);place-items:center;min-width:0}
 .viewer video{width:100%;height:100%;max-width:100%;min-width:0;object-fit:contain;background:#000}
+.btn.frame-save{background:linear-gradient(135deg,var(--acc),#ff7a3d);color:#160b09;font-weight:700;border-color:transparent;box-shadow:0 3px 12px rgba(255,122,61,.28)}
+#frameModal{position:fixed;inset:0;background:rgba(0,0,0,.86);display:flex;align-items:center;justify-content:center;padding:14px;z-index:80}
+.frame-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;width:min(560px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:10px;min-width:0}
+.frame-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
+#frameImg{max-width:100%;max-height:56vh;border-radius:8px;background:#000;align-self:center}
+.frame-hint{font-size:12px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}
+.video-notice{position:absolute;left:10px;right:10px;bottom:10px;background:rgba(18,24,34,.94);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.55;color:#ffd9a8;overflow-wrap:anywhere;z-index:3}
 .viewer .empty{color:var(--dim);text-align:center;padding:20px;font-size:14px}
 .crop-layer{position:absolute;inset:0;z-index:3;pointer-events:none;touch-action:none}
 .crop-box{position:absolute;box-sizing:border-box;border:1.5px solid #66ccff;box-shadow:0 0 0 9999px rgba(0,0,0,.45);cursor:move;pointer-events:auto;touch-action:none}
@@ -202,6 +209,9 @@ body.no-scroll{overflow:hidden;touch-action:none}
 /* ---------- source list ---------- */
 .srclist{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;min-width:0}
 .chip{padding:7px 11px;border-radius:999px;background:#0e121a;border:1px solid var(--line);font-size:12px;display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;overflow:hidden}
+.crop-presets .btn.on{background:linear-gradient(135deg,var(--acc),#ff7a3d);color:#160b09;font-weight:700;border-color:transparent}
+.lut-folder{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);min-width:0}
+.lut-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(56vw,100%)}
 .chip .x{flex:0 0 auto;padding:0 2px;color:var(--muted)}
 .chip.more{border-style:dashed;color:var(--blue)}
@@ -268,6 +278,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
       <div class="p-body">
         <div class="viewer" id="viewer">
           <video id="video" playsinline preload="metadata"></video>
+          <div class="video-notice" id="videoNotice" hidden></div>
           <div class="crop-layer" id="cropLayer" hidden>
             <div class="crop-box" id="cropBox">
               <span class="ch" data-h="nw"></span><span class="ch" data-h="ne"></span>
@@ -302,7 +313,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         </div>
 
         <div class="row" style="margin-top:10px">
-          <button class="btn sm" id="frameDlBtn">現在のフレーム画像を保存</button>
+          <button class="btn sm frame-save" id="frameDlBtn">現在のフレーム画像を保存</button>
         </div>
 
         <div class="inout">
@@ -372,6 +383,17 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
               <option value="h264_nvenc">h264_nvenc</option><option value="hevc_nvenc">hevc_nvenc</option>
             </select></div>
           </div>
+          <div class="lut-folder">
+            <div class="lut-head"><span class="hint" id="lutDirLabel">LUT フォルダ: -</span><span class="hint">（<span id="lutCount">0 個</span>）</span></div>
+            <div class="io-actions">
+              <button class="btn sm" id="lutPickBtn">置き場を指定</button>
+              <button class="btn sm" id="lutOpenBtn">PC で開く</button>
+              <button class="btn sm" id="lutReloadBtn">再読込</button>
+              <button class="btn sm" id="lutUploadBtn">LUT を追加</button>
+            </div>
+            <input type="file" id="lutFileInput" accept=".cube,.3dl,.dat" hidden>
+            <div class="hint">LUT（.cube / .3dl / .dat）を置くフォルダを指定できます。PC でフォルダに直接置くか、「LUT を追加」でスマホから送れます。</div>
+          </div>
           <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
             <label class="chk"><input type="checkbox" id="stabChk"> スタビライザー</label>
             <label class="chk"><input type="checkbox" id="audioChk"> 音声再エンコード</label>
@@ -386,7 +408,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
               <input class="inp mono" id="cropW" placeholder="幅"><input class="inp mono" id="cropH" placeholder="高さ">
               <input class="inp mono" id="cropX" placeholder="x"><input class="inp mono" id="cropY" placeholder="y">
             </div>
-            <div class="row" style="margin-top:6px;flex-wrap:wrap">
+            <div class="row crop-presets" style="margin-top:6px;flex-wrap:wrap">
               <button class="btn sm" data-crop="full">全体</button>
               <button class="btn sm" data-crop="16:9">16:9</button>
               <button class="btn sm" data-crop="9:16">9:16</button>
@@ -447,6 +469,18 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
 
 <div id="toast"></div>
 
+<div id="frameModal" hidden>
+  <div class="frame-card">
+    <div class="frame-head"><strong id="frameTitle">フレーム画像</strong><button class="btn sm" id="frameClose">閉じる</button></div>
+    <img id="frameImg" alt="現在のフレーム">
+    <div class="frame-hint">iPhone では「写真に保存 / 共有」→ 共有メニューの「画像を保存」で写真ライブラリに入ります。うまくいかない場合は、画像を長押し →「写真に追加」でも保存できます。</div>
+    <div class="io-actions">
+      <button class="btn sm frame-save" id="frameShare">写真に保存 / 共有</button>
+      <button class="btn sm" id="frameSaveBtn">ダウンロード</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
@@ -495,17 +529,65 @@ async function api(path,opt={}){
 }
 
 /* ---------- boot ---------- */
-/* ---------- current frame download ---------- */
-function downloadFrame(){
+/* ---------- LUT folder ---------- */
+function renderLutOptions(d){
+  state.luts=(d&&d.luts)||[];state.lutDir=(d&&d.dir)||"";
+  const s=$("lutSel"),keep=s.value;
+  s.innerHTML='<option value="">なし</option>';
+  state.luts.forEach(x=>{const o=document.createElement("option");o.value=x.path;o.textContent=x.name;s.appendChild(o);});
+  if(pendingLut&&state.luts.some(x=>x.path===pendingLut)){s.value=pendingLut;pendingLut="";}
+  else if(keep&&state.luts.some(x=>x.path===keep))s.value=keep;
+  const lbl=$("lutDirLabel");if(lbl)lbl.textContent="LUT フォルダ: "+(state.lutDir||"-");
+  const count=$("lutCount");if(count)count.textContent=state.luts.length+" 個";
+}
+async function loadLuts(){try{renderLutOptions(await api("/api/luts"));}catch(e){showErr("LUT 一覧を取得できません: "+e.message);}}
+async function setLutDir(path){
+  try{renderLutOptions(await api("/api/luts/dir",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})}));
+    toast("LUT 置き場を変更しました");}
+  catch(e){showErr("LUT 置き場を変更できません: "+e.message);}
+}
+async function revealLutDir(){
+  try{const d=await api("/api/luts/reveal",{method:"POST"});toast("PC で LUT フォルダを開きました: "+(d.dir||""));}
+  catch(e){showErr("LUT フォルダを開けません: "+e.message);}
+}
+async function uploadLut(file){
+  const fd=new FormData();fd.append("file",file);
+  try{const d=await api("/api/luts/upload",{method:"POST",body:fd,timeoutMs:600000});renderLutOptions(d);toast("LUT を追加しました: "+d.saved);}
+  catch(e){showErr("LUT を追加できません: "+e.message);}
+}
+function updateCropButtons(){
+  const full=isFullCrop();
+  document.querySelectorAll("[data-crop]").forEach(b=>b.classList.toggle("on",b.dataset.crop==="full"&&full));
+}
+/* ---------- current frame image (view / share / save) ---------- */
+let frameBlob=null,frameBlobKey="";
+function frameStampNow(){return frameStamp(state.curUs);}
+function frameFileName(){const s=(state.source&&state.source.name)||"frame";return s.replace(/\.[^.]*$/,"")+"_"+fmt(state.curUs).replace(/[:.]/g,"-")+".jpg";}
+function frameUrl(t,w){return "/api/sources/"+state.source.id+"/frame?tUs="+t+"&width="+w;}
+async function downloadFrame(){
   if(!state.source||state.kind==="audio"){toast("動画を読み込んでください",true);return;}
-  const t=frameStamp(state.curUs);
-  const w=(state.source&&state.source.width)||1280;
-  const base=(state.source.name||"frame").replace(/\.[^.]*$/,"")+"_"+fmt(t).replace(/[:.]/g,"-")+".jpg";
-  const a=document.createElement("a");
-  a.href="/api/sources/"+state.source.id+"/frame?tUs="+t+"&width="+w;
-  a.setAttribute("download",base);
+  const t=frameStampNow(),w=(state.source.width)||1280,url=frameUrl(t,w);
+  frameBlob=null;frameBlobKey="";
+  $("frameImg").src=url;
+  $("frameTitle").textContent="フレーム画像 "+fmt(t);
+  $("frameModal").hidden=false;
+  try{const r=await fetch(url,{cache:"no-store"});if(r.ok){frameBlob=await r.blob();frameBlobKey=t;}}catch(_){}
+}
+function closeFrameModal(){$("frameModal").hidden=true;}
+async function shareFrame(){
+  try{
+    if(frameBlob&&frameBlobKey===frameStampNow()&&navigator.canShare&&window.File){
+      const f=new File([frameBlob],frameFileName(),{type:"image/jpeg"});
+      if(navigator.canShare({files:[f]})){await navigator.share({files:[f]});return;}
+    }
+    toast("この端末は共有に未対応です。画像を長押しして保存してください",true);
+  }catch(e){if(e&&e.name==="AbortError")return;toast("共有できませんでした。画像を長押しして保存してください",true);}
+}
+function saveFrameFile(){
+  const url=$("frameImg").src,name=frameFileName();
+  const a=document.createElement("a");a.href=url;a.setAttribute("download",name);
   document.body.appendChild(a);a.click();a.remove();
-  toast("現在のフレーム画像を保存します: "+base);
+  toast("ダウンロードを開始しました: "+name);
 }
 /* ---------- settings persistence ---------- */
 const SETTINGS_KEY="trim.settings.v1";
@@ -515,7 +597,7 @@ function saveSettings(){
     const s={mode:state.mode,container:$("contSel").value,outPath:$("outPath").value,
       lut:$("lutSel").value,encoder:$("encSel").value,stabilize:$("stabChk").checked,
       audio:$("audioChk").checked,vbr:$("vbrInp").value,abr:$("abrInp").value,
-      inSnap:$("inSnapSel").value,outMode:$("outModeSel").value,
+      inSnap:$("inSnapSel").value,outMode:$("outModeSel").value,outDir:outDir,
       cropW:$("cropW").value,cropH:$("cropH").value,cropX:$("cropX").value,cropY:$("cropY").value};
     localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
   }catch(_){}
@@ -526,6 +608,7 @@ function loadSettings(){
   const set=(id,v)=>{if(v!==undefined&&v!==null&&$(id))$(id).value=v;};
   set("contSel",s.container);set("outPath",s.outPath);set("vbrInp",s.vbr);set("abrInp",s.abr);
   set("inSnapSel",s.inSnap);set("outModeSel",s.outMode);
+  if(s.outDir)outDir=s.outDir;
   if(s.encoder)$("encSel").value=s.encoder;
   $("stabChk").checked=!!s.stabilize;$("audioChk").checked=!!s.audio;
   set("cropW",s.cropW);set("cropH",s.cropH);set("cropX",s.cropX);set("cropY",s.cropY);
@@ -542,11 +625,11 @@ async function boot(){
   try{const t=await api("/api/token");state.token=t.token;}catch(e){const m=window.prompt("トークンを入力してください（サーバのコンソールに表示されます）");if(m){try{const ar=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:m})});if(!ar.ok)throw new Error("HTTP "+ar.status);state.token="cookie";}catch(e2){showErr("認証に失敗: "+e2.message);}}else{showErr("トークン取得に失敗: "+e.message);}}
   try{const c=await api("/api/config");state.config=c;$("modeBadge").textContent="preview: "+(c.previewMode||"auto");}catch(e){}
   loadSettings();
-  try{const l=await api("/api/luts");state.luts=l.luts||[];const s=$("lutSel");s.innerHTML='<option value="">なし</option>';
-    state.luts.forEach(x=>{const o=document.createElement("option");o.value=x.path;o.textContent=x.name;s.appendChild(o);});
-    if(pendingLut)$("lutSel").value=pendingLut;}catch(e){}
+  await loadLuts();
+  try{const l=null;
+    }catch(e){}
   try{const src=await api("/api/sources");renderSrcList(src.sources||[]);}catch(e){}
-  if(state.config&&state.config.defaultUploadOutput)$("outPath").placeholder="既定: "+state.config.defaultUploadOutput;
+  if(state.config&&state.config.defaultUploadOutput)$("outPath").placeholder="空 = ソースと同じ場所（アップロード時は "+state.config.defaultUploadOutput+"）";
 }
 
 /* ---------- source list ---------- */
@@ -583,10 +666,10 @@ async function selectSource(id){
   clearErr();
   try{
     const d=await api("/api/sources/"+id);
-    state.source=d.source;state.kind=d.source.kind||"video";state.directPlayable=d.directPlayable;state.variant="original";
+    state.source=d.source;state.kind=d.source.kind||"video";state.directPlayable=d.directPlayable;state.variant="original";state.proxyReady=!!d.proxyReady;
     state.durationUs=d.source.durationUs||0;state.fps=d.source.fps||30;
     state.inUs=0;state.outUs=state.durationUs;
-    crop=null;state.proxyReady=false;syncCropInputs();renderSource();loadKeyframes(id);setVariant("original");refreshFrames();ensureCrop();drawCrop();
+    crop=null;syncCropInputs();renderSource();loadKeyframes(id);setVariant("original");refreshFrames();ensureCrop();drawCrop();updatePlayNotice();
   }catch(e){showErr("ソース読み込み失敗: "+e.message);}
 }
 function renderSource(){
@@ -646,7 +729,7 @@ function setVariant(v){
   state.variant=v;const vid=$("video");
   vid.src="/api/sources/"+state.source.id+"/media?variant="+v;
   $("variantBadge").textContent="variant: "+v+(state.directPlayable?"":" (proxy)");
-  $("vEmpty").style.display="none";
+  $("vEmpty").style.display="none";updatePlayNotice();
 }
 
 /* ---------- keyframes ---------- */
@@ -732,14 +815,30 @@ function step(kind){
 }
 
 /* ---------- proxy ---------- */
+function exportHowText(){return state.mode==="reencode"?"書き出しは選んだ設定（再エンコード）で行われます。":"書き出しは元の画質のまま無変換です。";}
+function updatePlayNotice(){
+  const box=$("videoNotice");if(!box)return;
+  let msg="";
+  if(state.source&&state.kind!=="audio"&&!state.directPlayable){
+    if(state.variant==="proxy"&&!state.proxyReady)msg="プロキシを準備しています。しばらくお待ちください…";
+    else if(!state.proxyReady)msg="この形式（H.265 / 10bit など）はブラウザで直接再生できません。「プロキシを生成」を押すと再生できます。"+exportHowText();
+  }
+  box.textContent=msg;box.hidden=!msg;
+}
+function outDirStart(p){
+  const s=String(p||"").replace(/[\\/]+$/,"");
+  const i=Math.max(s.lastIndexOf("\\"),s.lastIndexOf("/"));
+  const base=s.slice(i+1);
+  return base.indexOf(".")>0?s.slice(0,i):s;
+}
 function updateProxyHint(){
   const t=$("proxyHint");if(!t)return;
   if(state.kind==="audio"){t.textContent="";return;}
   if(state.proxyReady){
-    t.textContent=(state.variant==="proxy"?"軽いプロキシでプレビュー中です。":"元の画質で再生中です。")+"下のボタンで切り替えられます。書き出しは元の画質のまま無変換です。作り直す場合は動画を開き直してください。";
+    t.textContent=(state.variant==="proxy"?"軽いプロキシでプレビュー中です。":"元の画質で再生中です。")+"下のボタンで切り替えられます。"+exportHowText()+"作り直す場合は動画を開き直してください。";
     return;
   }
-  t.textContent="この形式はブラウザで直接再生できないため、軽いプレビュー用の動画（プロキシ）を作成できます。プロキシはプレビュー専用で、書き出しは元の画質のまま無変換です。";
+  t.textContent="この形式はブラウザで直接再生できないため、軽いプレビュー用の動画（プロキシ）を作成できます。プロキシはプレビュー専用で、"+exportHowText();
 }
 async function makeProxy(){
   if(state.proxyReady){
@@ -751,7 +850,7 @@ async function makeProxy(){
   }
   clearErr();$("proxyBtn").disabled=true;$("proxyBtn").textContent="生成中…";
   try{const d=await api("/api/sources/"+state.source.id+"/proxy",{method:"POST"});
-    pollJob(d.jobId,()=>{state.proxyReady=true;$("proxyBtn").disabled=false;$("proxyBtn").textContent="元の画質で再生";
+    pollJob(d.jobId,()=>{state.proxyReady=true;$("proxyBtn").disabled=false;$("proxyBtn").textContent="元の画質で再生";updatePlayNotice();
       setVariant("proxy");updateProxyHint();toast("プロキシ生成完了");});}
   catch(e){showErr("プロキシ失敗: "+e.message);$("proxyBtn").disabled=false;$("proxyBtn").textContent="プロキシを生成";}
 }
@@ -795,6 +894,7 @@ function ensureCrop(){
   if(!crop){const {w,h}=srcWH();if(w&&h)crop={x:0,y:0,w:w-w%2,h:h-h%2};}
 }
 function drawCrop(){
+  updateCropButtons();
   const layer=$("cropLayer"),box=$("cropBox");if(!layer||!box)return;
   const show=state.mode==="reencode"&&cropUsable()&&!!crop;
   const r=show?videoRect():null;
@@ -930,15 +1030,16 @@ function onExportDone(r){
 }
 
 /* ---------- browse modal ---------- */
-let browsePath="";  // session only: the modal always starts at the Videos folder
-let pickDir=false;
+let browsePath="";  // session only: the video picker starts at the Videos folder
+let outDir="";     // last used output destination (start folder of the output picker)
+let pickDir=false,pickLut=false;
 let pickAction=null,pickSource=null;
 let browseParent=null;
 async function openBrowse(){
   $("browseModal").classList.add("show");document.body.classList.add("no-scroll");
   try{const r=await api("/api/roots");renderRoots(r.roots||[]);}catch(e){$("browseList").textContent="ルート取得失敗: "+e.message;}
   if(!browsePath&&state.config&&state.config.videosDir)browsePath=state.config.videosDir;
-  if(browsePath){browseTo(browsePath);}
+  if(browsePath){browseTo(browsePath,true);}
 }
 function driveOf(p){const m=/^([A-Za-z]:)/.exec(p||"");return m?m[1]+"\\":"";}
 function syncDrive(path){
@@ -957,8 +1058,15 @@ function renderRoots(roots){
     const nm=document.createElement("span");nm.className="nm";nm.textContent=rt.name||rt.path;
     b.appendChild(ic);b.appendChild(nm);b.addEventListener("click",()=>browseTo(rt.path));list.appendChild(b);});
 }
-async function browseTo(path){
-  try{const d=await api("/api/browse?path="+encodeURIComponent(path));browsePath=d.path;browseParent=d.parent;syncDrive(d.path);renderBrowse(d);}catch(e){$("browseList").textContent="取得失敗: "+e.message;}
+async function browseTo(path,fresh){
+  try{const d=await api("/api/browse?path="+encodeURIComponent(path));browsePath=d.path;browseParent=d.parent;syncDrive(d.path);renderBrowse(d);}
+  catch(e){
+    if(fresh&&state.config&&state.config.videosDir&&path!==state.config.videosDir){
+      browsePath=state.config.videosDir;toast("前回のフォルダを開けないためビデオフォルダを開きました",true);
+      return browseTo(browsePath,false);
+    }
+    $("browseList").textContent="開けませんでした: "+e.message;
+  }
 }
 function renderBrowse(d){
   const crumbs=$("crumbs");crumbs.textContent="";
@@ -1007,9 +1115,10 @@ async function doUpload(file){
 
 /* ---------- path validate ---------- */
 async function validatePath(){
-  const p=$("outPath").value.trim();if(!p){$("pathInfo").textContent="";return;}
-  try{const d=await api("/api/paths/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:p})});
-    $("pathInfo").textContent=(d.writable?"書き込み可能 ✓":"書き込み不可 ✗")+" / 空き "+fmtBytes(d.freeBytes)+" / 必要 "+fmtBytes(d.estimatedNeedBytes);
+  const p=$("outPath").value.trim();
+  try{const d=await api("/api/paths/validate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({path:p,sourceId:state.source?state.source.id:""})});
+    $("pathInfo").textContent=(d.isDefault?"既定の保存先: ":"保存先: ")+d.path+" … "+(d.writable?"書き込み可能 ✓":"書き込み不可 ✗")+" / 空き "+fmtBytes(d.freeBytes)+" / 必要 "+fmtBytes(d.estimatedNeedBytes);
   }catch(e){$("pathInfo").textContent="検証失敗: "+e.message;}
 }
 
@@ -1018,6 +1127,17 @@ const vid=$("video");
 vid.addEventListener("timeupdate",()=>{state.curUs=Math.round(vid.currentTime*1e6);$("curTime").textContent=fmt(state.curUs);updateTimeline();});
 vid.addEventListener("loadedmetadata",()=>{if(!state.durationUs&&vid.duration)state.durationUs=Math.round(vid.duration*1e6);refreshFrames();ensureCrop();drawCrop();});
 vid.addEventListener("play",()=>{$("playBtn").querySelector(".g").textContent="⏸";$("playBtn").lastElementChild.textContent="一時停止";});
+vid.addEventListener("error",()=>{
+  if(!state.source||state.kind==="audio")return;
+  const code=(vid.error&&vid.error.code)||0;
+  if(!state.directPlayable&&state.variant!=="proxy"){
+    $("proxyBox").style.display="block";updatePlayNotice();
+    toast(code===3||code===4?"この形式はブラウザで直接再生できません。プロキシを生成してください"
+      :"動画を読み込めませんでした（ファイルまたはネットワークをご確認ください）",true);
+  }else if(state.variant==="proxy"){
+    updatePlayNotice();toast("プロキシを再生できません。もう一度生成してください",true);
+  }
+});
 vid.addEventListener("pause",()=>{$("playBtn").querySelector(".g").textContent="▶";$("playBtn").lastElementChild.textContent="再生";});
 
 $("playBtn").addEventListener("click",()=>{if(!state.source)return;vid.paused?vid.play():vid.pause();});
@@ -1075,12 +1195,20 @@ $("modeSeg").addEventListener("click",e=>{const b=e.target.closest("button");if(
   state.mode=b.dataset.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
   $("reOpts").style.display=state.mode==="reencode"?"block":"none";ensureCrop();drawCrop();saveSettings();});
 $("frameDlBtn").addEventListener("click",downloadFrame);
+$("frameShare").addEventListener("click",shareFrame);
+$("frameSaveBtn").addEventListener("click",saveFrameFile);
+$("frameClose").addEventListener("click",closeFrameModal);
+$("frameModal").addEventListener("click",e=>{if(e.target===$("frameModal"))closeFrameModal();});
 bindSettings();
 $("inSnapSel").addEventListener("change",updateInOut);
 $("outModeSel").addEventListener("change",updateInOut);
 
 $("browseBtn").addEventListener("click",()=>{pickDir=false;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="none";$("browseTitle").textContent="PC の動画を選択";openBrowse();});
-$("outBrowseBtn").addEventListener("click",()=>{pickDir=true;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="inline-flex";$("browseTitle").textContent="出力先フォルダを選択";openBrowse();});
+$("outBrowseBtn").addEventListener("click",()=>{pickDir=true;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="inline-flex";$("browseTitle").textContent="出力先フォルダを選択";
+  const cur=$("outPath").value.trim();
+  const start=cur?outDirStart(cur):outDir;
+  if(start)browsePath=start;
+  openBrowse();});
 $("useDirBtn").addEventListener("click",async()=>{
   if(!browsePath)return;
   if(pickAction){
@@ -1090,7 +1218,8 @@ $("useDirBtn").addEventListener("click",async()=>{
     catch(e){showErr(verb+"失敗: "+e.message);}
     hideBrowse();return;
   }
-  $("outPath").value=browsePath;hideBrowse();});
+  if(pickLut){pickLut=false;const p2=browsePath;hideBrowse();setLutDir(p2);return;}
+  $("outPath").value=browsePath;outDir=browsePath;saveSettings();hideBrowse();validatePath();});
 $("mkdirBtn").addEventListener("click",async()=>{const n=$("newDirName").value.trim();if(!n||!browsePath){toast("フォルダ名を入力してください");return;}
   const sep=browsePath.indexOf("\\")>=0?"\\":"/";const target=browsePath.replace(/[\\/]+$/,"")+sep+n;
   try{const d=await api("/api/fs/mkdir",{method:"POST",body:JSON.stringify({path:target})});$("newDirName").value="";await browseTo(d.path);}catch(e){showErr("フォルダ作成失敗: "+e.message);}});
@@ -1104,6 +1233,13 @@ $("fileInput").addEventListener("change",e=>{if(e.target.files[0])doUpload(e.tar
 $("proxyBtn").addEventListener("click",makeProxy);
 $("exportBtn").addEventListener("click",doExport);
 $("validateBtn").addEventListener("click",validatePath);
+$("lutReloadBtn").addEventListener("click",loadLuts);
+$("lutOpenBtn").addEventListener("click",revealLutDir);
+$("lutPickBtn").addEventListener("click",()=>{pickDir=true;pickLut=true;pickAction=null;pickSource=null;
+  $("useDirBtn").textContent="このフォルダを LUT 置き場にする";$("useDirBtn").style.display="inline-flex";
+  $("browseTitle").textContent="LUT フォルダを選択";if(state.lutDir)browsePath=state.lutDir;openBrowse();});
+$("lutUploadBtn").addEventListener("click",()=>$("lutFileInput").click());
+$("lutFileInput").addEventListener("change",e=>{const f=e.target.files&&e.target.files[0];if(f)uploadLut(f);e.target.value="";});
 $("reloadBtn").addEventListener("click",boot);
 $("spinEscape").addEventListener("click",releaseSpinner);
 

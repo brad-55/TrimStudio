@@ -20,7 +20,7 @@
 - POST /api/sources/open {path} -> {source}
 - POST /api/sources/upload multipart file -> {source}
 - GET /api/sources -> {sources:[source]}
-- GET /api/sources/{id} -> {source, directPlayable, variant}
+- GET /api/sources/{id} -> {source, directPlayable, variant, proxyReady}（proxyReady はプロキシ実体の有無。false のまま proxy を要求すると /media は 409 proxy_not_ready）
 - GET /api/sources/{id}/keyframes -> {state, keyframes:[us]}
 - GET /api/sources/{id}/frames?fromUs=&countFrames=&spanUs= -> {frames:[us]}
 - GET /api/sources/{id}/media?variant=original|proxy -> Range 対応の映像

@@ -333,7 +333,8 @@ def create_app():
             return err("not_found", "source not found", 404)
         info = media.streams_to_info(source)
         return {"source": public_source(source), "directPlayable": ffmpeg_tools.direct_playable(info),
-                "variant": media.variant_for(cfg, source)}
+                "variant": media.variant_for(cfg, source),
+                "proxyReady": media.proxy_path(cfg, source_id).exists()}
 
     @app.get("/api/sources/{source_id}/keyframes")
     def keyframes(source_id: str):
@@ -539,13 +540,92 @@ def create_app():
             return err("not_found", "job not found", 404)
         return {"cancelling": True}
 
-    @app.get("/api/luts")
-    def luts():
+    def scan_luts():
         result = []
-        for ext in ("*.cube", "*.3dl", "*.dat"):
+        for ext in LUT_GLOBS:
             for item in cfg.luts_dir.glob(ext):
                 result.append({"name": item.name, "path": str(item)})
-        return {"luts": sorted(result, key=lambda x: x["name"])}
+        return sorted(result, key=lambda x: x["name"])
+
+    @app.get("/api/luts")
+    def luts():
+        return {"luts": scan_luts(), "dir": str(cfg.luts_dir)}
+
+    @app.post("/api/luts/dir")
+    async def luts_set_dir(request: Request):
+        """Choose the folder that holds the LUT files (persisted in config.json)."""
+        body = await json_object(request)
+        path = (body or {}).get("path") or ""
+        if not path:
+            return err("invalid_path", "path is required", 400)
+        try:
+            real = security.check_path(path, cfg)
+        except (ValueError, PermissionError) as exc:
+            return err("invalid_path", str(exc), 400)
+        target = Path(real)
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return err("mkdir_failed", str(exc), 400)
+        if not target.is_dir():
+            return err("invalid_path", "not a directory", 400)
+        cfg.data["lutsDir"] = str(target)
+        cfg.save()
+        return {"dir": str(cfg.luts_dir), "luts": scan_luts()}
+
+    @app.post("/api/luts/reveal")
+    def luts_reveal():
+        """Open the LUT folder in the PC's file manager (the server runs on the PC)."""
+        directory = str(cfg.luts_dir)
+        try:
+            if os.name == "nt":
+                os.startfile(directory)  # type: ignore[attr-defined]
+            else:
+                import subprocess as _sp
+                _sp.Popen(["xdg-open", directory])
+        except Exception as exc:  # noqa: BLE001 - report any desktop failure to the UI
+            return err("reveal_failed", str(exc), 500)
+        return {"dir": directory}
+
+    @app.post("/api/luts/upload")
+    async def luts_upload(file: UploadFile = File(...)):
+        """Add a LUT file from the browser (useful from a phone)."""
+        raw_name = os.path.basename(file.filename or "")
+        ext = Path(raw_name).suffix.lower()
+        if ext not in LUT_EXTS:
+            return err("invalid_lut", "対応していない拡張子です（.cube / .3dl / .dat）", 400)
+        safe = "".join(ch for ch in raw_name if ch not in '\\/:*?"<>|' and ord(ch) >= 32).strip()
+        if not safe:
+            safe = "lut" + ext
+        target = cfg.luts_dir / safe
+        if target.exists():
+            stem, suffix, i = target.stem, target.suffix, 1
+            while True:
+                candidate = cfg.luts_dir / ("%s-%d%s" % (stem, i, suffix))
+                if not candidate.exists():
+                    target = candidate
+                    break
+                i += 1
+        written = 0
+        try:
+            with open(str(target), "wb") as out:
+                while True:
+                    chunk = await file.read(1 << 20)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    if written > LUT_MAX_BYTES:
+                        out.close()
+                        target.unlink(missing_ok=True)
+                        return err("too_large", "LUT ファイルが大きすぎます", 400)
+                    out.write(chunk)
+        except OSError as exc:
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return err("write_failed", str(exc), 400)
+        return {"dir": str(cfg.luts_dir), "luts": scan_luts(), "saved": target.name}
 
     @app.post("/api/paths/validate")
     async def validate(request: Request):
@@ -553,14 +633,22 @@ def create_app():
         if body is None:
             return err("invalid_request", "request body must be a JSON object", 400)
         path = body.get("path") or ""
-        if not path:
-            return err("invalid_path", "path is required", 400)
+        source = db.get_source(body.get("sourceId", "")) if body.get("sourceId") else None
+        is_default = not path
+        if is_default:
+            # Empty means "the default destination": next to the source for local
+            # files, the Windows Videos folder for uploads.
+            if source and source.get("origin") != "upload":
+                path = str(Path(source["path"]).parent)
+            else:
+                path = exports.known_videos_dir()
         try:
             security.check_path(path, cfg)
         except (ValueError, PermissionError) as exc:
             return err("invalid_path", str(exc), 400)
-        source = db.get_source(body.get("sourceId", "")) if body.get("sourceId") else None
-        return exports.validate_output(cfg, db, source, path, body.get("startUs"), body.get("endUs"))
+        result = exports.validate_output(cfg, db, source, path, body.get("startUs"), body.get("endUs"))
+        result["isDefault"] = is_default
+        return result
 
     @app.get("/compare", response_class=HTMLResponse)
     def compare():
@@ -621,6 +709,10 @@ def range_response(path, request: Request):
     resp_headers["Content-Length"] = str(length)
     return StreamingResponse(media.read_range(path, start, end + 1), status_code=206, media_type=mime, headers=resp_headers)
 
+
+LUT_GLOBS = ("*.cube", "*.3dl", "*.dat")
+LUT_EXTS = (".cube", ".3dl", ".dat")
+LUT_MAX_BYTES = 64 * 1024 * 1024
 
 COMPARE_HTML = """<!doctype html><meta charset="utf-8"><title>Trim UI compare</title>
 <style>html,body{margin:0;height:100%} .row{display:flex;height:100%} iframe{flex:1;border:0;border-right:2px solid #333} header{font:14px sans-serif;padding:6px}</style>

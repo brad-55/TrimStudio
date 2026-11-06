@@ -138,6 +138,23 @@ def parse_fraction(value):
         return None
 
 
+def stream_rotation(st):
+    """Display rotation in degrees (0/90/180/270) from the display matrix or the rotate tag."""
+    for sd in st.get("side_data_list") or []:
+        if sd.get("rotation") is not None:
+            try:
+                return int(round(float(sd["rotation"]))) % 360
+            except (TypeError, ValueError):
+                pass
+    raw = (st.get("tags") or {}).get("rotate")
+    if raw is not None:
+        try:
+            return int(round(float(raw))) % 360
+        except (TypeError, ValueError):
+            pass
+    return 0
+
+
 def summarize(data):
     fmt = data.get("format") or {}
     streams = []
@@ -172,6 +189,7 @@ def summarize(data):
             "default": bool(disp.get("default")),
             "forced": bool(disp.get("forced")),
             "tags": st.get("tags") or {},
+            "rotation": stream_rotation(st),
         })
     video = None
     for st in streams:

@@ -6,6 +6,9 @@ WEB_HTML = ROOT + r"\web\index.html"
 WEB_CSS = ROOT + r"\web\style.css"
 WEB_JS = ROOT + r"\web\app.js"
 QWEN = ROOT + r"\web-qwen\index.html"
+FFMPEG_PY = ROOT + r"\app\ffmpeg_tools.py"
+EXPORTS_PY = ROOT + r"\app\exports.py"
+MAIN_PY = ROOT + r"\app\main.py"
 
 fails = 0
 
@@ -24,6 +27,10 @@ web_js = read(WEB_JS)
 qwen = read(QWEN)
 exp = read(ROOT + r"\app\exports.py")
 main_py = read(ROOT + r"\app\main.py")
+ffmpeg_py = read(ROOT + r"\app\ffmpeg_tools.py")
+exports_py = read(ROOT + r"\app\exports.py")
+config_py = read(ROOT + r"\app\config.py")
+readme_md = read(ROOT + r"\README.md")
 
 # 1) [hidden] must beat class display rules (this bug froze both UIs behind the spinner)
 check("web css: [hidden] guard", re.search(r"\[hidden\]\s*\{\s*display:\s*none\s*!important", web_css) is not None)
@@ -159,5 +166,39 @@ check("qwen: no JavaScript left inside <style>", "function " not in qwen_css and
 for _fn in ("function saveSettings(", "function loadSettings(", "function bindSettings(", "function downloadFrame(", "function layoutReport(", "function refreshJobs(", "function renderSource("):
     check("qwen: %s lives in <script>" % _fn, _fn in qwen_js)
 check("qwen: script is executed last", qwen.rindex("<script>") > qwen.index("</style>"))
+
+# 19) playback diagnosis fixes: rotation-aware crop, source depth, proxy readiness
+check("probe keeps the display rotation", "def stream_rotation(" in ffmpeg_py and "\"rotation\": stream_rotation(st)" in ffmpeg_py)
+check("hevc nvenc preserves source depth", "pix = \"p010le\" if ten_bit else \"yuv420p\"" in exports_py)
+check("crop clamps in display orientation", "disp_w, disp_h = src_h, src_w" in exports_py and "def video_rotation(" in exports_py)
+check("source detail reports proxyReadiness", "\"proxyReady\": media.proxy_path(cfg, source_id).exists()" in main_py)
+check("validate resolves the default destination", "is_default = not path" in main_py and "result[\"isDefault\"] = is_default" in main_py)
+check("qwen: playback notice", "id=\"videoNotice\"" in qwen and "function updatePlayNotice(" in qwen and "vid.addEventListener(\"error\"" in qwen)
+check("qwen: proxy readiness from the api", "state.proxyReady=!!d.proxyReady" in qwen)
+check("qwen: output picker starts at the output folder", "outDirStart(cur)" in qwen and "let outDir=" in qwen)
+check("qwen: picked output folder is remembered", "outDir=browsePath;saveSettings();" in qwen and "outDir:outDir" in qwen)
+check("qwen: validate works with an empty path", "path:p,sourceId:state.source?state.source.id:\"\"" in qwen and "d.isDefault" in qwen)
+check("web: playback error explains the proxy", "プロキシを生成」を押してください" in web_js)
+
+# 20) LUT folder UI, frame image sharing, crop preset highlight, beginner README
+check("config: lutsDir is configurable", 'self.data.get("lutsDir")' in config_py)
+check("main: LUT folder can be chosen", '@app.post("/api/luts/dir")' in main_py and 'cfg.data["lutsDir"] = str(target)' in main_py and "cfg.save()" in main_py)
+check("main: LUT folder can be revealed and filled", '@app.post("/api/luts/reveal")' in main_py and '@app.post("/api/luts/upload")' in main_py and "LUT_MAX_BYTES" in main_py)
+check("main: luts listing returns the folder", '"luts": scan_luts(), "dir": str(cfg.luts_dir)' in main_py)
+check("qwen: LUT folder controls", 'id="lutPickBtn"' in qwen and 'id="lutOpenBtn"' in qwen and 'id="lutReloadBtn"' in qwen and 'id="lutUploadBtn"' in qwen)
+check("qwen: LUT folder wiring", "function renderLutOptions(" in qwen and '"/api/luts/dir"' in qwen and '"/api/luts/reveal"' in qwen and '"/api/luts/upload"' in qwen)
+check("qwen: LUT folder shown", 'id="lutDirLabel"' in qwen and 'id="lutCount"' in qwen)
+check("qwen: frame image modal", 'id="frameModal"' in qwen and 'id="frameShare"' in qwen and 'id="frameSaveBtn"' in qwen)
+check("qwen: frame share to the photo library", "navigator.share({files:[f]})" in qwen and "navigator.canShare({files:[f]})" in qwen)
+check("qwen: frame button stands out", 'class="btn sm frame-save" id="frameDlBtn"' in qwen and ".btn.frame-save{" in qwen)
+check("qwen: crop preset highlight", "function updateCropButtons(" in qwen and ".crop-presets .btn.on{" in qwen and 'class="row crop-presets"' in qwen)
+check("readme: the three headline features", readme_md.index("Windows PC 上で動きます") < readme_md.index("操作はスマホからもできます") < readme_md.index("無劣化でトリミングできます"))
+check("readme: beginner download steps", "Download ZIP" in readme_md and "すべて展開" in readme_md)
+check("readme: python PATH warning", "Add python.exe to PATH" in readme_md)
+check("readme: start.cmd step", "start.cmd" in readme_md and "netsh advfirewall" in readme_md)
+check("readme: other features moved down", "## 特徴" in readme_md and "## その他の機能" in readme_md and readme_md.index("## その他の機能") > readme_md.index("## 使い方"))
+check("qwen: playback notice matches the export mode", "function exportHowText(" in qwen)
+check("qwen: video errors are told apart", "vid.error&&vid.error.code" in qwen)
+check("qwen: invalid remembered folder falls back", "function browseTo(path,fresh)" in qwen and "前回のフォルダを開けないためビデオフォルダを開きました" in qwen)
 print("RESULT:", "OK" if fails == 0 else "FAIL(%d)" % fails)
 sys.exit(0 if fails == 0 else 1)
