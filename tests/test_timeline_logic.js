@@ -1,60 +1,59 @@
-// Unit tests for the timeline decision logic (extracted from the inline script).
+// Unit tests for the timeline handle (◆) hit testing.
 const { loadQwen } = require("./_qwen_stub.js");
 const target = process.argv[2] || "web-qwen/index.html";
 const { sandbox } = loadQwen(target);
 const pick = sandbox.pickTimelineTarget;
-const resolve = sandbox.resolveDrag;
 
 let fails = 0;
 function check(label, cond, detail) {
   console.log((cond ? "OK   " : "FAIL ") + label + (cond ? "" : "  " + detail));
   if (!cond) { fails++; }
 }
-if (typeof pick !== "function" || typeof resolve !== "function") {
-  console.log("FAIL timeline helpers are not defined");
+if (typeof pick !== "function") {
+  console.log("FAIL pickTimelineTarget is not defined");
   process.exit(1);
 }
 
-const T = (x, inX, outX, row, last, lock) => pick(x, 1000, inX, outX, row, last, !!lock);
+// bar: playhead at 500, IN at 200, OUT at 700 (px), bar height 48 (handle zones split at y=22)
+const T = (px, py, inX, outX, playX, last) => pick(px, py, playX === undefined ? 500 : playX, inX, outX, last || null);
 
-check("seek row far -> seek", T(500, 100, 700, "seek", null) === "seek");
-check("trim row +15px -> in", T(115, 100, 700, "trim", null) === "in");
-check("trim row -15px -> in", T(85, 100, 700, "trim", null) === "in");
-check("trim row +15px -> out", T(715, 100, 700, "trim", null) === "out");
-check("seek row near in -> in", T(115, 100, 700, "seek", null) === "in");
-check("seek row near out -> out", T(715, 100, 700, "seek", null) === "out");
-check("trim row middle (gap 600) -> range", T(500, 100, 700, "trim", null) === "range");
-check("trim row middle (gap 30) -> none", T(500, 100, 130, "trim", null) === "none");
-check("close handles sticky in", T(115, 100, 130, "trim", "in") === "in");
-check("close handles sticky out", T(115, 100, 130, "trim", "out") === "out");
-check("close handles no sticky -> out", T(115, 100, 130, "trim", null) === "out");
-check("only out in range -> out", T(125, 100, 145, "trim", null) === "out");
-check("locked trim near in -> none", T(115, 100, 700, "trim", null, true) === "none");
-check("locked trim middle -> none", T(500, 100, 700, "trim", null, true) === "none");
-check("locked seek middle -> seek", T(500, 100, 700, "seek", null, true) === "seek");
-check("locked seek near in -> seek", T(115, 100, 700, "seek", null, true) === "seek");
-check("dead zone 7px -> tap", resolve(7) === "tap");
-check("dead zone -7px -> tap", resolve(-7) === "tap");
-check("dead zone 8px -> drag", resolve(8) === "drag");
-check("dead zone 20px -> drag", resolve(20) === "drag");
+// --- the playhead handle lives in the TOP band ---
+check("top: on the playhead handle", T(500, 10, 200, 700) === "play");
+check("top: +15px still the playhead", T(515, 10, 200, 700) === "play");
+check("top: -15px still the playhead", T(485, 10, 200, 700) === "play");
+check("top: 21px stays in the top band", T(500, 21, 200, 700) === "play");
+check("top: far from the handle -> nothing", T(521, 10, 200, 700) === null);
+check("top: above IN but IN handle is at the bottom -> nothing", T(200, 10, 200, 700) === null);
+
+// --- IN and OUT handles live in the LOWER band ---
+check("bottom: on the IN handle", T(200, 34, 200, 700) === "in");
+check("bottom: +15px still IN", T(215, 34, 200, 700) === "in");
+check("bottom: 22px starts the lower band", T(200, 22, 200, 700) === "in");
+check("bottom: on the OUT handle", T(700, 34, 200, 700) === "out");
+check("bottom: -15px still OUT", T(685, 34, 200, 700) === "out");
+check("bottom: empty area -> nothing", T(450, 34, 200, 700) === null);
+check("bottom: below the playhead -> nothing (its handle is on top)", T(500, 34, 200, 700) === null);
+check("bottom: far from everything -> nothing", T(20, 40, 200, 700) === null);
+
+// --- overlapping handles ---
+check("overlap: nearer handle wins", T(205, 34, 200, 220) === "in");
+check("overlap: nearer handle wins (out side)", T(215, 34, 200, 220) === "out");
+check("overlap: last grabbed wins", T(210, 34, 200, 220, 500, "out") === "out");
+check("overlap: last grabbed wins (in)", T(210, 34, 200, 220, 500, "in") === "in");
+
+// --- the rest of the bar is inert ---
+check("no seek by tapping empty space", T(400, 10, 200, 700) === null && T(400, 34, 200, 700) === null);
 
 
-// event ordering: a lostpointercapture style cancel after a committed pointerup
-// must not roll anything back (tlDrag is cleared before the commit).
-check("cancel after up is a no-op", (function () {
-  sandbox.tlUp({ clientX: 0 });
-  const a = sandbox.tlState();
-  sandbox.tlCancel();
-  const b = sandbox.tlState();
-  return a.inUs === b.inUs && a.outUs === b.outUs && b.dragging === false;
-})());
-// pure seeks stay out of the undo history; IN/OUT changes are recorded
-sandbox.pushUndo("再生位置", { inUs: 0, outUs: 10, curUs: 0 }, { inUs: 0, outUs: 10, curUs: 5 });
-check("pure seek is not undoable", sandbox.tlState().undo === 0, sandbox.tlState().undo);
-sandbox.pushUndo("IN", { inUs: 0, outUs: 10, curUs: 5 }, { inUs: 2, outUs: 10, curUs: 5 });
-check("IN change is undoable", sandbox.tlState().undo === 1, sandbox.tlState().undo);
-sandbox.undo();
-check("undo restores and fills redo", sandbox.tlState().undo === 0 && sandbox.tlState().redo === 1);
+// --- exact boundaries of the grab area (40px wide -> +/-20) ---
+check("boundary: +20px still hits the playhead", T(520, 10, 200, 700) === "play");
+check("boundary: +21px misses the playhead", T(521, 10, 200, 700) === null);
+check("boundary: -20px still hits the playhead", T(480, 10, 200, 700) === "play");
+check("boundary: -21px misses the playhead", T(479, 10, 200, 700) === null);
+check("boundary: +20px still hits IN", T(220, 34, 200, 700) === "in");
+check("boundary: +21px misses IN", T(221, 34, 200, 700) === null);
+check("boundary: -20px still hits OUT", T(680, 34, 200, 700) === "out");
+check("boundary: -21px misses OUT", T(679, 34, 200, 700) === null);
 
 console.log("RESULT:", fails === 0 ? "OK" : "FAIL(" + fails + ")");
 process.exit(fails === 0 ? 0 : 1);

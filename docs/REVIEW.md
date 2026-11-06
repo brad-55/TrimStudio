@@ -272,3 +272,13 @@ Agy:
 - README.md（日本語・既定）＋ README.en.md（英語）を相互リンクで切替。見出しは 30 対 30 で対応。
 - 反映: Output folder (defaults and verification)／lossless (no re-encoding) の併記と因果の明示／LUT (colour conversion files)／File Explorer 表記／Features 見出し／用語集の調整。
 - check_ui_static に両 README の切替リンク・導入4ステップ・特徴3点・画像・バッジ・Tailscale・タイムラインの静的ガードを追加（RESULT OK）。
+
+## シークバー全面作り直し（◆ハンドル方式・第46ラウンド）
+
+| ラウンド | レビュアー1: GLM-5.3-flash (effort max) | レビュアー2: Agy gemini-3.8-flash-high |
+|---|---|---|
+| 46 | **完全Go**（要確認1件: ドラッグ中に当たり判定を再評価していないか／軽微4件） | **完全Go**（実コードを読んで確認） |
+
+- ユーザー指示: 元の単一バーに戻し、(1) シークバーは現在位置カーソルの当たり判定のみ (2) 現在位置カーソルの上部に◆ (3) IN/OUT の下半分に◆ (4) ◆付近を当たり判定に。
+- GLM の要確認（ドラッグ中の再評価）は、pickTimelineTarget が tlDown のみで呼ばれ、tlMoveEv は掴んだ時点の tlDrag.target を使うことをコードで確認。静的ガード「handle is chosen only when grabbed」を追加。
+- 境界テスト（±20px は当たり、±21px は外れ）8件を追加し、単体テストは27ケース全合格。

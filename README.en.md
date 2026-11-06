@@ -174,15 +174,15 @@ Choosing **Re-encode** shows a LUT (colour look-up table) field. You can put LUT
 
 ### Seek bar and IN/OUT (trim) controls
 
-- **Top row (the red-bordered bar) = IN / OUT**, **bottom row (the thin bar) = playback position**. Because the rows are separate, touching the wrong place never performs the wrong kind of action.
-- The IN/OUT grips are **tall (they span both rows) and respond within about 44 px (a finger's width)**. **Touching directly below a grip (in the bottom row) still moves that grip.**
-- **Nothing changes until you move at least 8 px** (a light touch never shifts a value). Touching the top row without moving simply **selects** that grip.
-- With a grip selected, **±1F / ±1s / ±keyframe** move **the selected grip** instead of the playback position (the screen shows "IN selected").
-- Dragging the middle of the top row (away from the grips) **slides the whole cut range**.
-- Touching the bottom row away from the grips moves **only the playback position**.
-- While dragging, the app shows e.g. "Moving IN to 00:12.345".
-- **Undo / Redo** buttons take back one operation at a time (**one drag = one undo**).
-- Tick **Lock IN/OUT** to freeze the grips and allow **seeking only** (protects a range you have already decided on).
+You drive it with three **handles (◆)**. Their **vertical positions differ**, so you cannot grab the wrong one.
+
+- **Playback position (white line)**: its ◆ sits in the **upper part of the bar**. Grab near the ◆ (about 40 px either side) and drag left or right to move the playback position.
+- **IN / OUT (red lines)**: their ◆ sit in the **lower part of the bar**. The IN ◆ moves IN and the OUT ◆ moves OUT.
+- **Touching anywhere away from a ◆ does nothing** (tapping the bar does not seek by itself). This is what prevents mis-operation.
+- Once grabbed, the cursor **follows the movement of your finger** (it does not jump to the finger).
+- Movements under 3 px do not change any value.
+- IN and OUT never cross each other (they stop at one another).
+- Other ways to set the points: type a time, use ±1F / ±1s / ±keyframe (moves the playback position), or press "Set to current position" (sets IN or OUT to the playback position).
 
 ### Crop
 
