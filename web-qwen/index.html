@@ -116,15 +116,15 @@ main{display:grid;gap:14px;padding:14px;max-width:1320px;margin:0 auto}
 .tl-wrap{margin-top:14px;padding:12px;background:#0e121a;border:1px solid var(--line);border-radius:var(--radius)}
 .tl-times{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:8px}
 .tl-times b{color:var(--ink)}
-.timeline{position:relative;height:48px;background:#0a0e15;border-radius:9px;border:1px solid var(--line);touch-action:none;overflow:hidden;-webkit-user-select:none;user-select:none}
-.kf{position:absolute;top:0;width:1px;height:12px;background:rgba(255,255,255,.35)}
+.timeline{position:relative;height:72px;background:#0a0e15;border-radius:12px;border:1px solid var(--line);touch-action:none;overflow:hidden;-webkit-user-select:none;user-select:none}
+.kf{position:absolute;top:0;width:1px;height:18px;background:rgba(255,255,255,.35)}
 .region{position:absolute;top:0;height:100%;background:linear-gradient(180deg,rgba(255,77,61,.30),rgba(255,77,61,.14));border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
-.playhead,.handle{position:absolute;top:0;width:3px;height:100%;z-index:4;pointer-events:none}
+.playhead,.handle{position:absolute;top:0;width:4px;height:100%;z-index:4;pointer-events:none}
 .playhead{background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7)}
 .handle{background:var(--acc)}
-.playhead .dia,.handle .dia{position:absolute;left:50%;width:14px;height:14px;border-radius:2px;transform:translateX(-50%) rotate(45deg);box-shadow:0 0 6px rgba(0,0,0,.55)}
-.playhead .dia{top:3px;background:#fff}
-.handle .dia{top:26px;background:var(--acc);border:2px solid #fff;box-sizing:border-box}
+.playhead .dia,.handle .dia{position:absolute;left:50%;width:21px;height:21px;border-radius:3px;transform:translateX(-50%) rotate(45deg);box-shadow:0 0 6px rgba(0,0,0,.55)}
+.playhead .dia{top:5px;background:#fff}
+.handle .dia{top:39px;background:var(--acc);border:3px solid #fff;box-sizing:border-box}
 
 /* ---------- transport ---------- */
 .transport{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
@@ -1158,9 +1158,9 @@ $("outTime").addEventListener("change",()=>{const v=parseTime($("outTime").value
 
 /* ---------- timeline: grab a cursor by its handle (◆) ---------- */
 const DIA_R=20;      // half of the 40px wide grab area around a handle
-const DIA_BAND=22;   // y < 22 = the playhead handle zone / below = the IN and OUT handle zone
-function pickTimelineTarget(px,py,playX,inX,outX,last){
-  if(py<DIA_BAND)return Math.abs(px-playX)<=DIA_R?"play":null;
+const DIA_BAND=36;   // y < 36 = the playhead handle zone / below = the IN and OUT handle zone (half of the 72px bar)
+function pickTimelineTarget(px,py,playX,inX,outX,last,band){
+  if(py<band)return Math.abs(px-playX)<=DIA_R?"play":null;   // band = half of the bar height
   const dIn=Math.abs(px-inX),dOut=Math.abs(px-outX),inHit=dIn<=DIA_R,outHit=dOut<=DIA_R;
   if(inHit&&outHit)return (last==="in"||last==="out")?last:(dIn<=dOut?"in":"out");
   if(inHit)return "in";
@@ -1179,7 +1179,7 @@ function tlDown(e){
   if(tlDrag)return;                                  // one pointer at a time
   if(!state.source||state.durationUs<=0)return;
   const r=tlRect(),p=cursorPx(r);
-  const t=pickTimelineTarget(e.clientX-r.left,e.clientY-r.top,p.playX,p.inX,p.outX,lastHandle);
+  const t=pickTimelineTarget(e.clientX-r.left,e.clientY-r.top,p.playX,p.inX,p.outX,lastHandle,r.height/2);
   if(!t)return;                                      // the rest of the bar does nothing
   tlDrag={target:t,x0:e.clientX,before:snap(),moved:false};
   if(t==="in"||t==="out")lastHandle=t;
