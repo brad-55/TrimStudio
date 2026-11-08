@@ -150,20 +150,23 @@ def main():
          "-c:v", "libx264", "-g", "30", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", vpath])
     run([FF, "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=880:duration=9",
          "-c:a", "aac", apath])
-    if not (os.path.exists(vpath) and os.path.exists(apath)):
-        print("fixture generation failed"); return 1
-    for p in (vpath, apath):
+    fpath = os.path.abspath(os.path.join(D, "add_e2e_" + stamp + ".flac"))
+    run([FF, "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=660:duration=9",
+         "-c:a", "flac", fpath])
+    for p in (vpath, apath, fpath):
         st, r = call("POST", "/api/sources/open", {"path": p})
         if st != 200:
             print("open failed:", st, r); return 1
-    vid = r.get("source") if isinstance(r, dict) else None
     st, r2 = call("POST", "/api/sources/open", {"path": vpath})
     vid = (r2 or {}).get("source") or {}
     st, r3 = call("POST", "/api/sources/open", {"path": apath})
     aud = (r3 or {}).get("source") or {}
-    if not vid.get("id") or not aud.get("id"):
+    st, r4 = call("POST", "/api/sources/open", {"path": fpath})
+    flac = (r4 or {}).get("source") or {}
+    if not (vid.get("id") and aud.get("id") and flac.get("id")):
         print("open failed"); return 1
-    print("video source:", vid.get("name"), "| added source:", aud.get("name"))
+    print("video source:", vid.get("name"), "| added source:", aud.get("name"),
+          "| incompatible:", flac.get("name"))
     L = 4.0
 
     # --- 1/2: original +/-2s keeps the packets bit exact (plan E2E 1) ---
@@ -215,6 +218,38 @@ def main():
         check(len(ast) == 1, "added mode has exactly one audio track")
         check(packet_md5(out4, "0:a") == packet_md5(apath, "0:a", 1.0, 4.0),
               "added audio comes from addedStartMs=1000")
+
+    # --- 12: the re-encode checkbox really re-encodes only the added track ---
+    st, j = export(vid["id"], 2_000_000, 6_000_000,
+                   {"audioMode": "added", "addedSourceId": aud["id"], "addedStartMs": 0,
+                    "audioTiming": True, "addedReencode": False})
+    outR0 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    check(j.get("status") == "done" and outR0, "added copy export succeeds: " + str(j.get("error"))[:300])
+    if outR0:
+        check(packet_md5(outR0, "0:a") == packet_md5(apath, "0:a", 0.0, 4.0),
+              "checkbox off: the added track is a bit exact copy")
+    st, j = export(vid["id"], 2_000_000, 6_000_000,
+                   {"audioMode": "added", "addedSourceId": aud["id"], "addedStartMs": 0,
+                    "audioTiming": True, "addedReencode": True})
+    outR1 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    check(j.get("status") == "done" and outR1, "added re-encode export succeeds: " + str(j.get("error"))[:300])
+    if outR1:
+        check(packet_md5(outR1, "0:a") != packet_md5(apath, "0:a", 0.0, 4.0),
+              "checkbox on: the added track is re-encoded")
+        check(any("再エンコード" in str(w) for w in ((j.get("result") or {}).get("warnings") or [])),
+              "checkbox on: the result warns about the added re-encode")
+        ast = [s for s in streams_of(outR1) if s.get("codec_type") == "audio"]
+        check(len(ast) == 1 and ast[0].get("codec_name") == "aac",
+              "the re-encoded track uses the container codec: " + str([s.get("codec_name") for s in ast]))
+    # a codec the container cannot copy is refused unless the checkbox allows it
+    st, j = export(vid["id"], 2_000_000, 6_000_000,
+                   {"audioMode": "added", "addedSourceId": flac["id"], "audioTiming": True,
+                    "addedReencode": False})
+    check(st == 400, "an incompatible added codec is refused while the checkbox is off: " + str(st))
+    st, j = export(vid["id"], 2_000_000, 6_000_000,
+                   {"audioMode": "added", "addedSourceId": flac["id"], "audioTiming": True,
+                    "addedReencode": True})
+    check(j.get("status") == "done", "the checkbox lets an incompatible codec through: " + str(j.get("error"))[:300])
 
     # --- 5/6: bothTracks with independent shifts (plan E2E 5/6) ---
     st, j = export(vid["id"], 2_000_000, 6_000_000,

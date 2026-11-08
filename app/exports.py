@@ -770,7 +770,10 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
             else:
                 skip = added_head_skip_us(added_shift_us)
                 start = clamp_added_start(added_start_us, added_shift_us, dur)
-            added = {"source": row, "streams": ast, "reencode": (not compat),
+            # The option means "re-encode the added track", so it forces the encode even when
+            # the codec could be copied; without it an incompatible codec is refused
+            # instead of being silently re-encoded (lossless stays the default).
+            added = {"source": row, "streams": ast, "reencode": bool(added_reencode or not compat),
                      "startUs": start, "headSkipUs": skip,
                      "codec": REENCODE_AUDIO_CODECS.get(container, "aac")}
 
@@ -786,8 +789,11 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
         warnings.append("消音ではずらしを無視します")
     if mode == "bothMix":
         warnings.append("音声をミックスするため音声のみ再エンコードします（無変換ではなくなります）")
-    if added is not None and added["reencode"]:
-        warnings.append("追加音声のみ再エンコードします（このコンテナには無変換で入れられないため）")
+    if added is not None and added["reencode"] and mode != "bothMix":
+        if added_reencode and compat:
+            warnings.append("追加音声のみ再エンコードします（「音声のみ再エンコード」が ON のため）")
+        else:
+            warnings.append("追加音声のみ再エンコードします（このコンテナには無変換で入れられないため）")
     if length_us > 0 and abs(offsets.get("origShiftUs") or 0) >= length_us:
         warnings.append("元音声のずらしが区間長以上のため元音声は無音になります")
     if added is not None:

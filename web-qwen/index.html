@@ -457,7 +457,8 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
           <label class='chk'><input type='checkbox' id='abCompareChk'>ずらしを耳で確認（元の音と重ねる）</label>
         </div>
         <span class='hint mono' id='auditionDiag'></span>
-        <label class='chk' style='margin-top:8px'><input type='checkbox' id='addedReencodeChk'>音声のみ再エンコード</label>
+        <label class='chk' style='margin-top:8px'><input type='checkbox' id='addedReencodeChk'>追加した音声のみ再エンコード</label>
+<div class='hint' id='addedReencodeHint' style='margin-top:2px'>追加した音声<b>だけ</b>を再エンコードして出力します。出力形式（コンテナ）がその音声をそのまま入れられないときや、音声形式をそろえたいときに ON にします。ON の間は追加音声が再圧縮され、OFF のまま無変換で入れられない音声を選ぶと書き出しがエラーになります（映像と元の音声はどちらも無変換のまま）。</div>
         </div>
       </div>
     </section>

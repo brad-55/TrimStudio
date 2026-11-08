@@ -275,6 +275,7 @@ check("jog: pointercancel resets", "el.addEventListener('pointercancel',end);" i
 check("audio: context state watched", "auditionCtx.onstatechange" in qwen and "ctx=" in qwen)
 check("audio timing: settings hidden until ON", "id='audioTimingBox' hidden" in qwen and "b.hidden=!on" in qwen and "if(b)b.hidden=!on;" in qwen)
 check("audio timing: payload carries the switch", "o.audioTiming=!!($(\"auditionToggle\")&&$(\"auditionToggle\").checked);" in qwen)
+check("audio timing: the added re-encode is explained", "addedReencodeHint" in qwen and "追加した音声のみ再エンコード</label>" in qwen)
 check("audio timing: the jog never takes an absolute value", "function setAudioShift(target,v,fromJog)" in qwen and "if(rng)rng.value=v;" not in qwen and "if(fine)fine.value=Math.max(-100,Math.min(100,v));" not in qwen and "setAudioShift(target,base+(parseInt(el.value,10)||0),true)" in qwen)
 check("audio: silence is carried by volume, not by pausing", "el.dataset[flag]='1';follow(el);" in qwen or ("el.dataset[flag]='1';" in qwen and "if(!el.paused)el.pause();" not in qwen.split("const handle=function(el,flag,target){")[1].split("handle(origAudio")[0]))
 check("audio timing: one mute listener only", qwen.count("muteOrigAuditionChk\").addEventListener('change'") == 1)

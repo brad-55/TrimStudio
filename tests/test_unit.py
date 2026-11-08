@@ -269,6 +269,44 @@ def main():
     jm.release_output(r"L:\x\b.mp4", alias=r"L:\y\c.mp4")
     check(jm.is_output_reserved(r"L:\y\c.mp4") is False, "alias is released too")
 
+
+    # --- the added re-encode checkbox really re-encodes the added track (plan 0.5) ---
+    import json as _json  # noqa: E402
+    from app.exports import _audio_plan  # noqa: E402
+
+
+    class _FakeDB:
+        def __init__(self, row):
+            self.row = row
+
+        def get_source(self, sid):
+            return self.row if sid == "add" else None
+
+
+    _sel = [{"index": 0, "type": "video", "codec": "h264"},
+            {"index": 1, "type": "audio", "codec": "aac", "channels": 2, "sample_rate": 48000}]
+    _aac = [{"index": 0, "type": "audio", "codec": "aac", "channels": 2, "sample_rate": 48000}]
+    _flac = [{"index": 0, "type": "audio", "codec": "flac", "channels": 2, "sample_rate": 48000}]
+    _row_aac = {"id": "add", "streams_json": _json.dumps(_aac), "duration_us": 9_000_000}
+    _row_flac = {"id": "add", "streams_json": _json.dumps(_flac), "duration_us": 9_000_000}
+    _opt = {"audioMode": "added", "addedSourceId": "add"}
+
+    _w = []
+    _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt), 0, 4_000_000, _w)
+    check(_p["added"]["reencode"] is False, "a compatible added codec is copied while the checkbox is off")
+    _w = []
+    _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt, addedReencode=True), 0, 4_000_000, _w)
+    check(_p["added"]["reencode"] is True, "the checkbox forces the added track to be re-encoded")
+    check(any("再エンコード" in x for x in _w), "the forced re-encode is reported as a warning")
+    _w = []
+    _p = _audio_plan(_FakeDB(_row_flac), _sel, "mp4", dict(_opt, addedReencode=True), 0, 4_000_000, _w)
+    check(_p["added"]["reencode"] is True and _p["added"]["codec"] == "aac",
+          "an incompatible codec is re-encoded to the container codec")
+    try:
+        _audio_plan(_FakeDB(_row_flac), _sel, "mp4", dict(_opt), 0, 4_000_000, [])
+        check(False, "an incompatible codec without the checkbox is refused")
+    except ValueError:
+        check(True, "an incompatible codec without the checkbox is refused")
     print("unit checks: OK")
     return 0
 
