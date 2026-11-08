@@ -6,9 +6,13 @@ import threading
 from . import ffmpeg_tools
 
 
-def _log_path(name):
+def _log_dir():
     from pathlib import Path
-    return Path(__file__).resolve().parent.parent / "data" / "logs" / name
+    return Path(__file__).resolve().parent.parent / "data" / "logs"
+
+
+def _log_path(name):
+    return _log_dir() / name
 
 
 _log_writes = {"n": 0}
@@ -20,7 +24,7 @@ def prune_logs(days=LOG_RETENTION_DAYS):
     try:
         from pathlib import Path
         cutoff = time.time() - days * 86400
-        logs = _log_path("").parent
+        logs = _log_dir()
         if not logs.exists():
             return 0
         dropped = 0
@@ -31,19 +35,17 @@ def prune_logs(days=LOG_RETENTION_DAYS):
                     dropped += 1
                     continue
                 keep = []
+                total = 0
                 with open(log, "r", encoding="utf-8", errors="replace") as fh:
                     for line in fh:
-                        stamp = line[:19]
+                        total += 1
                         try:
-                            t = time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M:%S"))
+                            t = time.mktime(time.strptime(line[:19], "%Y-%m-%d %H:%M:%S"))
                         except ValueError:
-                            try:
-                                t = time.mktime(time.strptime(time.strftime("%Y-%m-%d ") + line[:8], "%Y-%m-%d %H:%M:%S"))
-                            except ValueError:
-                                t = time.time()
+                            t = 0.0  # undated (legacy) lines are treated as expired
                         if t >= cutoff:
                             keep.append(line)
-                if len(keep) != sum(1 for _ in open(log, "r", encoding="utf-8", errors="replace")):
+                if len(keep) != total:
                     with open(log, "w", encoding="utf-8") as fh:
                         fh.writelines(keep)
             except Exception:
@@ -146,7 +148,7 @@ def probe_media(fp, path):
     try:
         out = subprocess.run([str(fp), "-v", "error", "-print_format", "json", "-show_streams", str(path)],
                              capture_output=True, text=True, encoding="utf-8", errors="replace",
-                             creationflags=CREATE_NO_WINDOW).stdout
+                             creationflags=ffmpeg_tools.CREATE_NO_WINDOW).stdout
         for st in json.loads(out or "{}").get("streams", []):
             kind = st.get("codec_type")
             key = str(kind) + (":" + str(st.get("index")) if kind == "audio" else "")

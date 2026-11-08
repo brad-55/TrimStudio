@@ -276,6 +276,35 @@ def main():
     from app import exports  # noqa: E402
 
 
+    # the debug helpers are only useful if they actually run (a NameError here is
+    # invisible in production because the caller swallows exceptions)
+    from app import proc  # noqa: E402
+    _log = proc._log_path("selftest.log")
+    _log.parent.mkdir(parents=True, exist_ok=True)
+    with open(_log, "w", encoding="utf-8") as fh:
+        fh.write("2026-01-01 00:00:00 ancient\n")
+        fh.write("00:00:00 undated-legacy\n")
+        fh.write("2999-01-01 00:00:00 future\n")
+    proc.prune_logs()
+    _body = open(_log, encoding="utf-8").read()
+    check("future" in _body and "ancient" not in _body and "legacy" not in _body,
+          "prune_logs keeps only the recent window: " + _body.replace(chr(10), "|")[:80])
+    _log.unlink()
+    _missing = proc.probe_media(r"tools/ffmpeg/bin/ffprobe.exe", "data/does-not-exist.mp4")
+    check(isinstance(_missing, dict) and not _missing.get("codec"),
+          "probe_media returns cleanly for a missing file (never raises)")
+    _real = None
+    for _cand in ("data/test/aux", "data/test"):
+        import glob as _glob
+        _hits = _glob.glob(_cand + "/*.mp4")
+        if _hits:
+            _real = _hits[0]
+            break
+    if _real:
+        _d = proc.probe_media(r"tools/ffmpeg/bin/ffprobe.exe", _real)
+        check(_d.get("codec") and _d.get("start"),
+              "probe_media reads the real stream start times: " + str(_d.get("start"))[:80])
+
     # --- the added re-encode checkbox really re-encodes the added track (plan 0.5) ---
     import json as _json  # noqa: E402
     from app.exports import _audio_plan  # noqa: E402
