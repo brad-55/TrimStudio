@@ -750,9 +750,9 @@ function loadSettings(){
     $("reOpts").style.display=s.mode==="reencode"?"block":"none";}
   pendingLut=s.lut||"";
   if(s.audioMode){const r=document.querySelector('input[name="audioModeRadio"][value="'+String(s.audioMode)+'"]');if(r)r.checked=true;}
-  const setClampMs=(id,v)=>{let x=parseInt(v,10);if(!isFinite(x))x=0;if($(id))$(id).value=x;return x;};
-  setClampMs("origShiftInp",s.audioShiftMs);if($("origShiftRange"))$("origShiftRange").value=0;
-  setClampMs("addedShiftInp",s.addedShiftMs);if($("addedShiftRange"))$("addedShiftRange").value=0;
+  const setShiftInp=(id,v)=>{let x=parseInt(v,10);if(!isFinite(x))x=0;if($(id))$(id).value=x;return x;};
+  setShiftInp("origShiftInp",s.audioShiftMs);["origShiftRange","origShiftFine"].forEach(function(id){if($(id))$(id).value=0;});
+  setShiftInp("addedShiftInp",s.addedShiftMs);["addedShiftRange","addedShiftFine"].forEach(function(id){if($(id))$(id).value=0;});
   setNum("addedStartInp",s.addedStartMs);
   if($("addedReencodeChk"))$("addedReencodeChk").checked=!!s.addedReencode;
   if(typeof updateAudioUI==='function')setTimeout(updateAudioUI,0);
@@ -1543,13 +1543,13 @@ function clampMs(v){v=parseInt(v,10);if(!isFinite(v))v=0;return v;}
 function startMsVal(v){v=parseInt(v,10);if(!isFinite(v)||v<0)v=0;return v;}
 function audioShiftValue(target){return target==='orig'?clampMs($("origShiftInp")?$("origShiftInp").value:0):clampMs($("addedShiftInp")?$("addedShiftInp").value:0);}
 function msLabel(v){return (v>0?'+':'')+v+' ms';}
-function setAudioShift(target,v,fromJog){v=clampMs(v);if(!fromJog){["origShiftFine","addedShiftFine","origShiftRange","addedShiftRange"].forEach(function(id){if($(id))$(id).value=0;});}const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;if(rng)rng.value=v;if(fine)fine.value=Math.max(-100,Math.min(100,v));if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
+function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;/* the jog sliders are relative: their centre already means "the value in use", so they are never moved to an absolute position. Only a stray off-centre handle (missed pointerup) is nudged back. */if(!fromJog&&((rng&&Number(rng.value)!==0)||(fine&&Number(fine.value)!==0))){if(rng)rng.value=0;if(fine)fine.value=0;}if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
   // 1ms is far below the 80ms drift guard, so the audition must be re-seeked at once.
   if(auditionActive){syncAudition(true);queueAuditionSync();}}
 function addedModeActive(m){m=m||audioModeValue();return m==='added'||m==='bothTracks'||m==='bothMix';}
 function origModeActive(m){m=m||audioModeValue();return m==='original'||m==='bothTracks'||m==='bothMix';}
 function renderAddedInfo(){const el=$("addedInfo");if(!el)return;if(state.addedSource){const d=state.addedSource.durationUs;el.textContent=(state.addedSource.name||'追加音声')+(d!=null?' / '+fmt(d):'');}else{el.textContent='未選択';}}
-function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").disabled=!hasSrc;if($("auditionToggle"))$("auditionToggle").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();}
+function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").disabled=!hasSrc;if($("abCompareChk"))$("abCompareChk").disabled=!hasSrc;if($("auditionToggle"))$("auditionToggle").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();}
 function ensureAuditionAudio(){if(!origAudio){origAudio=new Audio();origAudio.preload='metadata';}if(!addedAudio){addedAudio=new Audio();addedAudio.preload='metadata';}}
 function queueAuditionSync(){if(!auditionActive)return;if(!auditionRaf)auditionRaf=requestAnimationFrame(auditionTick);}
 function auditionTick(){auditionRaf=0;if(!auditionActive)return;syncAudition();auditionDiag();if(auditionActive)auditionRaf=requestAnimationFrame(auditionTick);}
@@ -1560,27 +1560,33 @@ function syncAudition(force){
   const mode=audioModeValue();
   const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
   const t=vid.currentTime||0;
-  /* Hard seek only on a real desync; a <=1% speed trim smooths small drift silently. */
+  /* Playback stays completely untouched while it is in sync: any per-frame rate trim
+     or repeated seek makes the audio stutter, so only a real desync (>0.5s) seeks, and
+     a short grace period keeps a burst of seeks from turning into machine-gun churn. */
   const settle=function(el,target,hardset){
     if(!el||el.readyState<1||el.seeking)return;
+    if(el.playbackRate!==1)el.playbackRate=1;
     const d=(el.currentTime||0)-target;
-    if(hardset||force||Math.abs(d)>0.2){try{el.currentTime=target;}catch(_){}el.playbackRate=1;return;}
-    const k=Math.abs(d)>0.03?Math.max(-0.01,Math.min(0.01,-d*0.2)):0;
-    if(Math.abs(el.playbackRate-(1+k))>0.0005)el.playbackRate=1+k;
+    if(!(hardset||force||Math.abs(d)>0.5))return;
+    const now=Date.now();
+    if(el.dataset.seekAt&&now-Number(el.dataset.seekAt)<400)return;
+    el.dataset.seekAt=String(now);
+    try{el.currentTime=target;}catch(_){}
   };
   const follow=function(el){
     if(!el)return;
     if(auditionWantPlay&&!vid.paused){if(el.paused)el.play().catch(function(){});}
     else if(auditionWantPlay&&!el.paused){el.pause();}
   };
-  /* While the target position is still negative the track must stay silent AND still:
-     pausing avoids rolling forward, so the onset needs no rewind seek. */
+  /* A track that has not started yet stays silent but keeps playing: pausing and
+     resuming on the onset is what caused audible gaps, so the volume carries the
+     silence and the onset needs exactly one seek. */
   const handle=function(el,flag,target){
     if(!el||!el.src)return;
     if(target<0){
       el.volume=0;
       el.dataset[flag]='1';
-      if(!el.paused)el.pause();
+      follow(el);
       return;
     }
     el.volume=1;
@@ -1662,7 +1668,7 @@ const _openLocal=openLocal;openLocal=async function(path){if(pendingAddedOpen){p
 const _doUpload=doUpload;doUpload=async function(file){if(pendingAddedUpload){pendingAddedUpload=false;clearErr();toast('追加音声をアップロード中…');const fd=new FormData();fd.append('file',file);try{const d=await api('/api/sources/upload',{method:'POST',body:fd,timeoutMs:1800000});state.addedSource=d.source;renderAddedInfo();updateAudioUI();toast('追加音声を追加: '+(d.source.name||''));}catch(e){showErr('追加音声のアップロード失敗: '+e.message);}return;}await _doUpload(file);};
 const _hideBrowse=hideBrowse;hideBrowse=function(){pendingAddedOpen=false;pendingAddedUpload=false;_hideBrowse();};
 document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventListener('change',()=>{stopAudition();saveSettings();updateAudioUI();}));
-['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const rng=$(target==='orig'?'origShiftRange':'addedShiftRange');if(rng)rng.value=c;if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();if(auditionActive){syncAudition(true);queueAuditionSync();}});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
+['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const live=$(target==='orig'?'origShiftVal':'addedShiftVal');if(live)live.textContent=msLabel(c);if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();if(auditionActive){syncAudition(true);queueAuditionSync();}});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
   /* The sliders are relative jog controls: the centre always means the value in
      use, so dragging right/left nudges it instead of jumping to an absolute ms. */
   [['origShiftFine','orig'],['addedShiftFine','added'],['origShiftRange','orig'],['addedShiftRange','added']].forEach(function(pair){

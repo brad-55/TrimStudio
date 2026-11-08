@@ -297,6 +297,18 @@ To change settings, copy `config.example.json` to `config.json` and edit it. Mai
 ```
 
 `e2e_lossless.py` and `e2e_edge.py` verify that lossless cutting is correct. See `docs/API.md` for the API.
+### Audio timing (shift / extra track)
+
+You can shift the audio later or earlier to fix lip-sync drift while keeping the cut **lossless** (packet copy).
+
+- Turn on the **audio timing adjustment** switch to reveal the settings (when it is off, the values are kept but ignored by both the preview and the export).
+- **Original audio shift**: type a value in ms (no upper limit) or use the **relative slider whose centre is the current value**. Positive delays, negative advances.
+- **Extra audio track**: add the audio of another file, with its own start position (ms) and shift.
+- **Auto sync**: analyses the two tracks and proposes an offset (several windows of a few seconds each).
+- **Modes**: original only / extra only / both tracks (two lossless tracks) / mix (audio is re-encoded) / mute.
+- **Preview**: listen to the result at the chosen timing; changes apply immediately.
+- The exported audio packets stay bit-identical to the source when shifting; only the mix mode re-encodes audio.
+
 
 ## Directory layout
 

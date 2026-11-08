@@ -337,8 +337,6 @@ def plan(cfg, db, source, start_us, end_us, options, is_taken=None):
 
 
 AUDIO_MODES = ("original", "added", "bothTracks", "bothMix", "mute")
-# Kept for reference only: the API no longer clamps the shift.
-AUDIO_MAX_SHIFT_US = None
 
 
 def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=True, has_orig=True):
