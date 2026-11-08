@@ -17,6 +17,32 @@ from .config import ROOT, Config
 from .db import Database
 from .jobs import JobManager
 
+
+def _build_stamp():
+    """Content hash of the running code.
+
+    A test that hits a server process which is still running an older revision would
+    silently validate the wrong code, so /api/health exposes this and the suites
+    compare it with the working tree.  Content (not mtime) keeps it stable across
+    checkouts and copies.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    base = Path(__file__).resolve().parent
+    targets = [base / n for n in ("main.py", "exports.py", "jobs.py", "ffmpeg_tools.py",
+                                  "sources.py", "audio_sync.py", "security.py", "config.py")]
+    targets.append(base.parent / "web-qwen" / "index.html")
+    for path in targets:
+        h.update(path.name.encode())
+        try:
+            h.update(path.read_bytes())
+        except OSError:
+            h.update(b"missing")
+    return h.hexdigest()[:12]
+
+
+BUILD_STAMP = _build_stamp()
+
 # Device-specific extensions are included: Insta360/GoPro .lrv/.insv/.insp/.360 (MP4 content),
 # prosumer .mxf, .dv, .vob, RealMedia .rm/.rmvb, Flash .f4v, .3g2, camcorder .mod/.tod, .m2t.
 VIDEO_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".flv", ".ts", ".m2ts", ".mts", ".m2t",
@@ -148,7 +174,7 @@ def create_app():
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "ffmpeg": bool(app.state.ffmpeg), "ffmpegVersion": ffmpeg_tools.ffmpeg_version(app.state.ffmpeg), "version": "0.1.0"}
+        return {"ok": True, "ffmpeg": bool(app.state.ffmpeg), "ffmpegVersion": ffmpeg_tools.ffmpeg_version(app.state.ffmpeg), "version": "0.1.0", "build": BUILD_STAMP, "ffmpegPath": app.state.ffmpeg}
 
     @app.get("/api/token")
     def token():

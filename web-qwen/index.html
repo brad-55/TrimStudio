@@ -1565,14 +1565,21 @@ function syncAudition(force){
      or repeated seek makes the audio stutter, so only a real desync (>0.5s) seeks, and
      a short grace period keeps a burst of seeks from turning into machine-gun churn. */
   const settle=function(el,target,hardset){
-    if(!el||el.readyState<1||el.seeking)return;
+    if(!el||el.readyState<1||el.seeking)return false;   /* not ready: try again next frame */
     if(el.playbackRate!==1)el.playbackRate=1;
     const d=(el.currentTime||0)-target;
-    if(!(hardset||force||Math.abs(d)>0.5))return;
+    if(!(hardset||force||Math.abs(d)>0.5))return true;  /* already aligned */
     const now=Date.now();
-    if(el.dataset.seekAt&&now-Number(el.dataset.seekAt)<400)return;
+    const last=el.dataset.seekTarget;
+    /* A different target (a new shift, or the onset of a held track) must never be
+       swallowed by the churn guard, otherwise the audio keeps playing at the old,
+       unshifted position. The guard only throttles repeats of the SAME target. */
+    const same=last!==undefined&&Math.abs(Number(last)-target)<0.05;
+    if(same&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<400)return false;
+    el.dataset.seekTarget=String(target);
     el.dataset.seekAt=String(now);
-    try{el.currentTime=target;}catch(_){}
+    try{el.currentTime=target;}catch(_){return false;}
+    return true;
   };
   const follow=function(el){
     if(!el)return;
@@ -1592,8 +1599,10 @@ function syncAudition(force){
     }
     el.volume=1;
     const onset=el.dataset[flag]==='1';
-    if(onset)delete el.dataset[flag];
-    settle(el,target,onset);
+    /* Consume the flag only after the seek is actually issued: if the element is still
+       seeking or not ready, the next frame retries instead of silently playing the
+       track at the unshifted position. */
+    if(settle(el,target,onset)&&onset)delete el.dataset[flag];
     follow(el);
   };
   handle(origAudio,'head',t-s1/1000);
@@ -1631,7 +1640,9 @@ function startAudition(){
   const local=t0-(state.inUs||0)/1e6;
   const base=(state.addedStartMs||0)/1000-s2/1000;
   const align=function(el,target){
-    const apply=function(){try{el.currentTime=Math.max(0,target);}catch(_){}};
+    const apply=function(){
+      try{el.currentTime=Math.max(0,target);el.dataset.seekTarget=String(Math.max(0,target));el.dataset.seekAt=String(Date.now());}catch(_){}
+    };
     if(el.readyState>=1)apply();
     else el.addEventListener('loadedmetadata',apply,{once:true});
   };

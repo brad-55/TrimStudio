@@ -95,11 +95,6 @@ def packet_md5(path, stream_spec, start=None, dur=None):
     return hashlib.md5(p.stdout).hexdigest()
 
 
-def seg_md5(path, spec, start, dur):
-    p = run([FF, "-v", "error", "-ss", str(start), "-t", str(dur), "-i", path, "-map", spec, "-f", "md5", "-"])
-    return (p.stdout or "").strip()
-
-
 def elst_media_times(path):
     """Minimal MP4 box walk: moov>trak>edts>elst entries as (duration, media_time)."""
     with open(path, "rb") as fh:
@@ -138,6 +133,12 @@ def elst_media_times(path):
 
 
 def main():
+    # the server must be running this working tree and the decoding ffmpeg must be the
+    # app's own binary, otherwise the whole suite validates the wrong code
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from _harness import packet_times, require_current, require_ffmpeg
+    require_current(BASE, TOKEN)
+    print("ffmpeg:", require_ffmpeg(BASE, FF, TOKEN))
     os.makedirs(D, exist_ok=True)
     # controlled fixtures: 12s h264+aac and a 9s aac side file
     # a unique name per run: /api/sources/open dedupes by path and the old record
@@ -174,6 +175,25 @@ def main():
     out1 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out1, "export +2000ms succeeds: " + str(j.get("error"))[:400])
     if out1:
+        # Independent oracle: the source's own packet grid is measured straight from the
+        # file (no seek), never by re-running the pipeline's cut.  Boundary spec (see
+        # docs/TEST_DESIGN.md): the export starts at the frame that *contains* the in
+        # point, so it may carry one priming packet at the head, and no packet at or
+        # after the out point.  The internal time base is re-anchored (make_zero), so the
+        # checks are the count, the grid spacing and the placement -- not absolute source PTS.
+        src = packet_times(vpath, "0:a")
+        exact = [t0 for t0 in src if 2.0 - 1e-6 <= t0 < 6.0 - 1e-6]
+        got = packet_times(out1, "0:a")
+        check(len(exact) <= len(got) <= len(exact) + 1,
+              "boundary: packet count matches the source interval (+1 priming max): %d vs %d"
+              % (len(got), len(exact)))
+        steps = sorted({round(got[i + 1] - got[i], 6) for i in range(len(got) - 1)})
+        check(len(steps) <= 2 and (max(steps) - min(steps) < 5e-6),  # 5us: float rounding only
+              # any real re-timing would move a packet by a whole frame (~21-23ms)
+              "boundary: the packet grid stays uniform (no re-timing): " + str(steps[:3]))
+        check(abs(got[0] - 2.0) < 1e-6,
+              "boundary: the delayed audio starts exactly at the shift: " + str(got[0]))
+    if out1:
         ast = [s for s in streams_of(out1) if s.get("codec_type") == "audio"]
         vst = [s for s in streams_of(out1) if s.get("codec_type") == "video"]
         check(packet_md5(out1, "0:a") == packet_md5(vpath, "0:a", 2.0, 4.0),
@@ -186,6 +206,15 @@ def main():
     st, j = export(vid["id"], 2_000_000, 6_000_000, {"audioShiftMs": -2000})
     out2 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out2, "export -2000ms succeeds: " + str(j.get("error"))[:400])
+    if out2:
+        src = packet_times(vpath, "0:a")
+        exact = [t0 for t0 in src if 2.0 - 1e-6 <= t0 < 6.0 - 1e-6]
+        got2 = packet_times(out2, "0:a")
+        check(len(exact) <= len(got2) <= len(exact) + 1,
+              "boundary: the audio interval survives the -2000ms route: %d vs %d"
+              % (len(got2), len(exact)))
+        check(abs(got2[0]) < 1e-6,
+              "boundary: the audio stays at zero when the video is the moved side: " + str(got2[0]))
     if out2:
         ast = [s for s in streams_of(out2) if s.get("codec_type") == "audio"]
         vst = [s for s in streams_of(out2) if s.get("codec_type") == "video"]
@@ -272,6 +301,21 @@ def main():
                    {"audioMode": "bothMix", "addedSourceId": aud["id"], "addedShiftMs": 800, "audioTiming": True})
     out6 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out6, "bothMix succeeds: " + str(j.get("error"))[:120])
+
+    # the plan's coverage table had empty cells for the mix route at 0 and at a negative
+    # original shift: both must still produce one track of the interval length
+    for shift, label in ((0, "0ms"), (-1200, "-1200ms")):
+        st, j = export(vid["id"], 2_000_000, 6_000_000,
+                       {"audioMode": "bothMix", "addedSourceId": aud["id"], "audioShiftMs": shift,
+                        "addedShiftMs": 0, "audioTiming": True})
+        outm = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+        check(j.get("status") == "done" and outm,
+              "bothMix with the original %s succeeds: %s" % (label, str(j.get("error"))[:200]))
+        if outm:
+            ast = [s for s in streams_of(outm) if s.get("codec_type") == "audio"]
+            check(len(ast) == 1, "bothMix %s outputs one mixed track" % label)
+            check(abs(float(ast[0].get("duration") or 0) - L) < 0.2,
+                  "bothMix %s keeps the interval length: %s" % (label, ast[0].get("duration")))
     if out6:
         ast = [s for s in streams_of(out6) if s.get("codec_type") == "audio"]
         check(len(ast) == 1, "bothMix outputs one mixed track")

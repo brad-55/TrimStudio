@@ -292,3 +292,18 @@ Agy:
 - バー 48px → 72px（1.5倍）、◆ 14px → 21px、現在位置の◆ top:3→5px、IN/OUT の◆ top:26→39px、カーソル線 3→4px、目盛り 12→18px、角丸 9→12px。
 - 縦の当たり判定の境界を固定値からバー高さの半分（r.height/2）へ変更。GLM の軽微指摘（既定値の陳腐化）を受けて band は**必須引数**にした（既定値なし）。
 - 検証: 単体テスト 27 ケース OK、スモーク OK、check_ui_static OK、実配信 HTML で height:72px / ◆21px / top:39px を確認。
+
+## テスト設計レビュー（新しいゲート）
+
+計画・成果物のレビューとは別に、**テスト設計そのもの**を独立にレビューする。
+
+- 対象: `docs/TEST_DESIGN.md`（層の分担・網羅表・流出分析・提案）＋ `tests/` の実物。
+- レビュアー: まず **GLM 5.3 Flash**（`review/nim_review.py review/testdesign_prompt.txt …`）。将来的に三者（Argon / GLM / Qwen）へ拡張。
+- 合格基準: 「重大な欠陥: 無し」。指摘は `docs/TEST_DESIGN.md` §7 に対応、§8 に見送り理由を記録する。
+- 運用: 機能追加・不具合修正のたびに §9 の流出分析へ1行追加し、同じクラスを二度流さない。
+
+### 第1回（2026-11-08・GLM）
+
+- 判定: **条件付きGo**（重大2・中5・軽3）。条件: ①オラクルの自己同調解消 ②DOM挙動/同期ループをゲート条件へ ③表の空白 ④非機能E2E。
+- 対応: すべて実装（`tests/_harness.py` 新設・`tests/test_audio_ui_behaviour.js` 新設・`tests/e2e_jobs_cancel_parallel.py` 新設・境界仕様の明文化・build スタンプの内容ハッシュ化）。
+- 実績: `require_current` が**旧ビルドのサーバを検出してテストを停止**（従来なら旧コードを検証して「合格」と誤報告していた）。

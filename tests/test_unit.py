@@ -270,6 +270,8 @@ def main():
     check(jm.is_output_reserved(r"L:\y\c.mp4") is False, "alias is released too")
 
 
+    from app import exports  # noqa: E402
+
     # --- the added re-encode checkbox really re-encodes the added track (plan 0.5) ---
     import json as _json  # noqa: E402
     from app.exports import _audio_plan  # noqa: E402
@@ -290,6 +292,20 @@ def main():
     _row_aac = {"id": "add", "streams_json": _json.dumps(_aac), "duration_us": 9_000_000}
     _row_flac = {"id": "add", "streams_json": _json.dumps(_flac), "duration_us": 9_000_000}
     _opt = {"audioMode": "added", "addedSourceId": "add"}
+
+    # the API speaks milliseconds and the internal time base is microseconds: the
+    # conversion is a pure function, so it belongs in the unit layer (not only in E2E)
+    check(exports._ms_us(1500) == 1_500_000, "1500ms converts to 1.5s of microseconds")
+    check(exports._ms_us(-1) == -1000, "a negative shift keeps its sign")
+    check(exports._ms_us(None) == 0 and exports._ms_us("junk") == 0, "junk converts to zero")
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": 1500}, 0, 4_000_000, _w)
+    check(_p["offsets"]["audio"] == 1_500_000,
+          "a 1500ms shift becomes a 1.5s audio offset: " + str(_p["offsets"]["audio"]))
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": -1500}, 0, 4_000_000, _w)
+    check(_p["offsets"]["video"] == 1_500_000 and _p["offsets"]["audio"] == 0,
+          "a negative shift moves the video side instead: " + str(_p["offsets"]))
 
     _w = []
     _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt), 0, 4_000_000, _w)
