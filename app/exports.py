@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import cleanup, ffmpeg_tools, security
 from .media import is_hdr, streams_to_info
-from .proc import run_ffmpeg_job
+from .proc import log_debug, probe_media, run_ffmpeg_job
 
 EXT_CONTAINER = {".mp4": "mp4", ".m4v": "mp4", ".mov": "mov", ".mkv": "matroska",
                  ".webm": "webm", ".ts": "matroska", ".m2ts": "matroska",
@@ -345,10 +345,13 @@ AUDIO_MODES = ("original", "added", "bothTracks", "bothMix", "mute")
 def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=True, has_orig=True):
     """Per-input mux offsets in microseconds (export time base); positive plays later.
 
-    Lossless rule: a stream-copied audio track cannot be advanced by dropping packets
-    without quantising the shift to the audio frame length, so a negative audio shift is
-    realised by moving the video (and the other non-audio streams) later by the same
-    amount. Packets are never re-encoded either way.
+    Lossless rule: a negative shift advances the ORIGINAL audio's content instead of
+    moving the video.  Delaying the video looks equivalent on paper, but the video is the
+    reference track: players that normalise it to zero then show no shift at all, which
+    is exactly what "the exported file plays unshifted" looked like.  Advancing the audio
+    keeps both tracks at zero and carries the shift in the content, and it is still a
+    pure packet copy (the cut simply starts |shift| later).  The audio filter route
+    (bothMix) does the same thing with atrim.  Packets are never re-encoded.
 
     Plan 0.8b: the original shift only exists when the original audio is part of the
     output AND a reference stream anchors it (the video; or, for the audio-only
@@ -365,9 +368,12 @@ def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=Tru
                 "origShiftUs": 0, "addedShiftUs": 0}
     applies = mode in ("original", "bothTracks", "bothMix") and has_orig and (has_video or mode == "original")
     orig = int(audio_shift_us or 0) if applies else 0
+    audio_skip = 0
     if has_video:
-        video = max(0, -orig)
+        video = 0
         audio = max(0, orig)
+        if mode in ("original", "bothTracks") and orig < 0:
+            audio_skip = -orig
     else:
         video = 0
         audio = orig  # the audio stream is its own reference: keep the sign (plan 0.7)
@@ -378,6 +384,7 @@ def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=Tru
         added = video + max(0, added_shift_us or 0)
     streams = {"original": 1, "added": 1, "bothTracks": 2, "bothMix": 1}.get(mode, 1)
     return {"video": video, "audio": audio, "added": added, "audioStreams": streams,
+            "audioSkipUs": audio_skip,
             "origShiftUs": orig, "addedShiftUs": int(added_shift_us or 0) if (has_added and mode in ("added", "bothTracks", "bothMix")) else 0}
 
 
@@ -808,7 +815,7 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
         if added["headSkipUs"] >= length_us and length_us > 0:
             warnings.append("追加音声のずらしが区間長以上のため追加音声は無音になります")
 
-    if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added")):
+    if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added", "audioSkipUs")):
         return None
     return {"mode": mode, "offsets": offsets,
             "origShiftUs": offsets.get("origShiftUs", 0), "addedShiftUs": offsets.get("addedShiftUs", 0),
@@ -885,6 +892,17 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
     def runner(job):
         built = plan(cfg, db, source, start_us, end_us, options,
                      is_taken=lambda p: jobs.is_output_reserved(p))
+        log_debug("plan", job=job.id, source=source.get("name"), path=source.get("path"),
+                  container=built["container"], mode=built.get("mode"),
+                  audioMode=options.get("audioMode"), timing=options.get("audioTiming"),
+                  requested={"audioShiftMs": options.get("audioShiftMs"),
+                             "addedShiftMs": options.get("addedShiftMs"),
+                             "addedStartMs": options.get("addedStartMs"),
+                             "addedReencode": options.get("addedReencode")},
+                  actualStartUs=built["actualStartUs"], actualEndUs=built["actualEndUs"],
+                  fallback=built.get("fallback"), excluded=[s.get("index") for s in built["excluded"]],
+                  selected=[{"i": s.get("index"), "t": s.get("type"), "c": s.get("codec")} for s in built["selected"]],
+                  audioPlan=built.get("audioPlan"), warnings=built.get("warnings"))
         explicit = bool(options.get("outputPath"))
         out = Path(built["outputPath"])
         out_dir = out.parent
@@ -947,6 +965,12 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                 offs = ap.get("offsets") or {}
                 added_info = ap.get("added")
                 shifted = bool(offs.get("video") or offs.get("audio") or offs.get("added"))
+                log_debug("route", job=job.id, kind=built["kind"], audioMode=am,
+                          offsets=offs, shifted=shifted,
+                          added={"reencode": bool(added_info and added_info.get("reencode")),
+                                 "startUs": (added_info or {}).get("startUs"),
+                                 "headSkipUs": (added_info or {}).get("headSkipUs")} if added_info else None,
+                          lengthUs=built["actualEndUs"] - built["actualStartUs"])
                 if built["kind"] == "audio" or not [st for st in built["selected"] if st.get("type") == "video"]:
                     # Nothing but audio/subtitles can be stored: cut them in one pass so the
                     # mux never falls back to ffmpeg default stream selection (which would
@@ -1040,8 +1064,20 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                         if am in ("original", "bothTracks") and audio_sel:
                             atemp = temp.with_name(temp.stem + ".a" + temp.suffix)
                             job.update(message="lossless audio copy")
+                            skip = int(offs.get("audioSkipUs") or 0)
+                            a_start = built["actualStartUs"] + skip
+                            a_end = built["actualEndUs"] + skip
+                            if skip:
+                                dur = int(source.get("duration_us") or 0)
+                                if dur and a_end > dur:
+                                    a_end = dur
+                                    built["warnings"].append(
+                                        "音声を " + str(round(skip / 1000.0)) + "ms 進めるため末尾が素材の終端に達しました"
+                                        "（音声が少し短くなります）")
+                                log_debug("audio_advance", job=job.id, skipUs=skip,
+                                          cutStartUs=a_start, cutEndUs=a_end)
                             run_ffmpeg_job(job, ff, _av_cut_args(source, atemp, audio_sel,
-                                                                 built["actualStartUs"], built["actualEndUs"]), total_us=total)
+                                                                 a_start, a_end), total_us=total)
                         if added_info is not None:
                             add_temp = temp.with_name(temp.stem + ".x" + temp.suffix)
                             job.update(message="re-encoding the added audio" if added_info["reencode"]
@@ -1091,6 +1127,11 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
             except Exception:
                 pass
             note = "FLAC は可逆再エンコード（STREAMINFO 補正）" if built["container"] == "flac" else ""
+            log_debug("output", job=job.id, out=str(out),
+                      expected={"origShiftUs": (built.get("audioPlan") or {}).get("origShiftUs"),
+                                "addedShiftUs": (built.get("audioPlan") or {}).get("addedShiftUs"),
+                                "offsets": (built.get("audioPlan") or {}).get("offsets")},
+                      media=probe_media(fp, out))
             _plan = built.get("audioPlan") or {}
             _off = (_plan.get("offsets") or {}) if _plan else {}
             result = {"outputPath": str(out), "bytes": out.stat().st_size,

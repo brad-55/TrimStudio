@@ -169,7 +169,8 @@ def main():
     off = audio_offsets("original", 120000, 0, False)
     check(off["audio"] == 120000 and off["video"] == 0, "+shift moves the audio later")
     off = audio_offsets("original", -120000, 0, False)
-    check(off["video"] == 120000 and off["audio"] == 0, "-shift moves the video later instead")
+    check(off["video"] == 0 and off["audio"] == 0 and off["audioSkipUs"] == 120000,
+      "-shift advances the audio content instead of moving the video")
     off = audio_offsets("bothTracks", 0, 90000, True)
     check(off["added"] == 90000 and off["audioStreams"] == 2, "added shift and 2 tracks: " + str(off))
     off = audio_offsets("bothTracks", 0, -90000, True)
@@ -242,8 +243,10 @@ def main():
 
     # --- added-track offset must also carry the video term (plan-review finding) ---
     off = audio_offsets("bothTracks", -5_000_000, 2_000_000, True)
-    check(off["video"] == 5_000_000 and off["audio"] == 0, "a negative original shift moves the video instead")
-    check(off["added"] == 7_000_000, "added follows the video term: " + str(off))
+    check(off["video"] == 0 and off["audio"] == 0 and off["audioSkipUs"] == 5_000_000,
+      "a negative original shift advances the audio content instead")
+    check(off["added"] == 2_000_000,
+          "the added track follows the video, which no longer moves: " + str(off))
     off2 = audio_offsets("added", -5_000_000, 2_000_000, True)
     check(off2["video"] == 0 and off2["added"] == 2_000_000,
           "case 2 (no original audio) must not add the video term: " + str(off2))
@@ -304,8 +307,9 @@ def main():
           "a 1500ms shift becomes a 1.5s audio offset: " + str(_p["offsets"]["audio"]))
     _w = []
     _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": -1500}, 0, 4_000_000, _w)
-    check(_p["offsets"]["video"] == 1_500_000 and _p["offsets"]["audio"] == 0,
-          "a negative shift moves the video side instead: " + str(_p["offsets"]))
+    check(_p["offsets"]["video"] == 0 and _p["offsets"]["audio"] == 0
+          and _p["offsets"]["audioSkipUs"] == 1_500_000,
+          "a negative shift advances the audio: " + str(_p["offsets"]))
 
     _w = []
     _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt), 0, 4_000_000, _w)

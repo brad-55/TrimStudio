@@ -238,21 +238,26 @@ def main():
     out2 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out2, "export -2000ms succeeds: " + str(j.get("error"))[:400])
     if out2:
+        # A negative shift advances the ORIGINAL audio's content: both tracks stay at
+        # zero (so no player can normalise the shift away) and the audio comes from
+        # [start + 2s, end + 2s].
         src = packet_times(vpath, "0:a")
-        exact = [t0 for t0 in src if 2.0 - 1e-6 <= t0 < 6.0 - 1e-6]
+        exact = [t0 for t0 in src if 4.0 - 1e-6 <= t0 < 8.0 - 1e-6]
         got2 = packet_times(out2, "0:a")
         check(len(exact) <= len(got2) <= len(exact) + 1,
-              "boundary: the audio interval survives the -2000ms route: %d vs %d"
+              "boundary: the advanced audio interval has the right packet count: %d vs %d"
               % (len(got2), len(exact)))
-        check(abs(got2[0]) < 1e-6,
-              "boundary: the audio stays at zero when the video is the moved side: " + str(got2[0]))
-    if out2:
+        check(abs(got2[0]) < 0.2,
+              "boundary: the advanced audio still starts together with the video: " + str(got2[0]))
         ast = [s for s in streams_of(out2) if s.get("codec_type") == "audio"]
         vst = [s for s in streams_of(out2) if s.get("codec_type") == "video"]
-        check(packet_md5(out2, "0:a") == packet_md5(vpath, "0:a", 2.0, 4.0),
-              "-2000ms keeps the audio packets bit exact")
-        check(abs(float(vst[0].get("start_time") or 0) - 2.0) < 0.25,
-              "-2000ms moves the video instead: start=" + str(vst[0].get("start_time")))
+        check(packet_md5(out2, "0:a") == packet_md5(vpath, "0:a", 4.0, 4.0),
+              "-2000ms advances the audio content (packets from the source's 4s-8s)")
+        check(abs(float(vst[0].get("start_time") or 0)) < 0.25,
+              "-2000ms leaves the video (the reference track) at zero: start="
+              + str(vst[0].get("start_time")))
+        check(abs(float(ast[0].get("start_time") or 0)) < 0.25,
+              "-2000ms leaves the audio at zero as well: start=" + str(ast[0].get("start_time")))
         print("   starts:", {s["codec_type"]: s.get("start_time") for s in ast + vst})
 
     # --- 3: audio-only +/- (plan 0.7 / E2E 3) ---
@@ -338,8 +343,8 @@ def main():
         ast = [s for s in streams_of(out5) if s.get("codec_type") == "audio"]
         check(len(ast) == 2, "bothTracks keeps two audio tracks: " + str(len(ast)))
         if len(ast) == 2:
-            check(packet_md5(out5, "0:a:0") == packet_md5(vpath, "0:a", 2.0, 4.0),
-                  "track 0 is the untouched original audio")
+            check(packet_md5(out5, "0:a:0") == packet_md5(vpath, "0:a", 3.0, 4.0),
+                  "track 0 is the original audio advanced by 1000ms (content based)")
             check(packet_md5(out5, "0:a:1") == packet_md5(apath, "0:a", 0.5, 4.0),
                   "track 1 is the added audio advanced by 500ms (head skip)")
             print("   starts:", {i: s.get("start_time") for i, s in enumerate(ast)})

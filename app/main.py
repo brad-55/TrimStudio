@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import audio_sync, cleanup, exports, ffmpeg_tools, fsops, media, security, sources
+from . import audio_sync, cleanup, exports, ffmpeg_tools, fsops, media, proc, security, sources
 from .config import ROOT, Config
 from .db import Database
 from .jobs import JobManager
@@ -171,6 +171,11 @@ def create_app():
         except (ValueError, AttributeError):
             return None
         return body if isinstance(body, dict) else None
+
+    try:
+        proc.prune_logs()
+    except Exception:
+        pass
 
     @app.get("/api/health")
     def health():
