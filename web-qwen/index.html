@@ -116,15 +116,27 @@ main{display:grid;gap:14px;padding:14px;max-width:1320px;margin:0 auto}
 .tl-wrap{margin-top:14px;padding:12px;background:#0e121a;border:1px solid var(--line);border-radius:var(--radius)}
 .tl-times{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:8px}
 .tl-times b{color:var(--ink)}
-.timeline{position:relative;height:72px;background:#0a0e15;border-radius:12px;border:1px solid var(--line);touch-action:none;overflow:hidden;-webkit-user-select:none;user-select:none}
-.kf{position:absolute;top:0;width:1px;height:18px;background:rgba(255,255,255,.35)}
-.region{position:absolute;top:0;height:100%;background:linear-gradient(180deg,rgba(255,77,61,.30),rgba(255,77,61,.14));border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
-.playhead,.handle{position:absolute;top:0;width:4px;height:100%;z-index:4;pointer-events:none}
-.playhead{background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7)}
-.handle{background:var(--acc)}
-.playhead .dia,.handle .dia{position:absolute;left:50%;width:21px;height:21px;border-radius:3px;transform:translateX(-50%) rotate(45deg);box-shadow:0 0 6px rgba(0,0,0,.55)}
-.playhead .dia{top:5px;background:#fff}
-.handle .dia{top:39px;background:var(--acc);border:3px solid #fff;box-sizing:border-box}
+.timeline{position:relative;height:96px;background:linear-gradient(180deg,#080c12,#0c1119);border-radius:14px;border:1px solid var(--line);touch-action:none;overflow:hidden;-webkit-user-select:none;user-select:none;isolation:isolate}
+#timeline::before{content:'';position:absolute;left:10px;right:10px;top:45%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);pointer-events:none;z-index:1}
+#timeline::after{content:'';position:absolute;left:12px;right:12px;top:54%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,176,32,.14),transparent);pointer-events:none;z-index:1}
+.kf{position:absolute;top:0;width:1px;height:12px;background:linear-gradient(180deg,rgba(255,255,255,.42),rgba(255,255,255,.02));z-index:2;pointer-events:none}
+.region{position:absolute;top:0;height:100%;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(74,163,255,.05),rgba(255,77,61,.17) 42%,rgba(255,176,32,.12));box-shadow:inset 2px 0 0 rgba(255,77,61,.92),inset -2px 0 0 rgba(255,176,32,.92),inset 0 0 18px rgba(0,0,0,.18);border-radius:9px}
+.playhead,.handle{position:absolute;top:0;width:2px;height:100%;margin-left:-1px;z-index:7;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.75),rgba(255,255,255,.12))}
+.handle.in{background:linear-gradient(180deg,rgba(255,77,61,.18),rgba(255,77,61,.95) 58%,rgba(255,77,61,.32))}
+.handle.out{background:linear-gradient(180deg,rgba(255,176,32,.18),rgba(255,176,32,.95) 58%,rgba(255,176,32,.32))}
+.playhead .dia,.handle .dia{position:absolute;left:50%;transform:translateX(-50%);box-sizing:border-box;pointer-events:none}
+.playhead .dia{top:9px;width:28px;height:28px;border-radius:999px;background:linear-gradient(180deg,#fff,#dbe4f2);box-shadow:0 0 0 1px rgba(255,255,255,.75),0 5px 16px rgba(255,255,255,.14)}
+.playhead .dia::after{content:'▶';display:block;font-size:10px;line-height:28px;text-align:center;color:#08111a;letter-spacing:-.02em}
+.handle .dia{bottom:10px;width:34px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.65);color:#160b09;font-weight:900;font-size:10px;letter-spacing:.06em;display:grid;place-items:center}
+.handle.in .dia{background:linear-gradient(180deg,#ff6a58,#ff3322);box-shadow:0 5px 16px rgba(255,77,61,.28)}
+.handle.in .dia::after{content:'IN'}
+.handle.out .dia{background:linear-gradient(180deg,#ffcd66,#ff9a00);box-shadow:0 5px 16px rgba(255,176,32,.24)}
+.handle.out .dia::after{content:'OUT';font-size:9px}
+.timeline .handle.in.selected .dia,.timeline .handle.in.grab .dia{box-shadow:0 0 0 3px rgba(255,77,61,.32),0 0 0 1px rgba(255,255,255,.85),0 6px 18px rgba(0,0,0,.45)}
+.timeline .handle.out.selected .dia,.timeline .handle.out.grab .dia{box-shadow:0 0 0 3px rgba(255,176,32,.32),0 0 0 1px rgba(255,255,255,.85),0 6px 18px rgba(0,0,0,.45)}
+.timeline .playhead.selected .dia,.timeline .playhead.grab .dia{box-shadow:0 0 0 3px rgba(74,163,255,.45),0 0 0 1px rgba(255,255,255,.95),0 6px 20px rgba(255,255,255,.18)}
+.timeline .playhead.grab .dia,.timeline .handle.grab .dia{transform:translateX(-50%) scale(1.12)}
+@media(max-width:430px){.timeline{height:88px}.handle .dia{width:31px}.playhead .dia{width:26px;height:26px}.playhead .dia::after{line-height:26px}}
 
 /* ---------- transport ---------- */
 .transport{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
@@ -236,6 +248,11 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
 .spacer{flex:1}
 [hidden]{display:none!important}
 .spin-escape{margin-top:6px;padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:inherit}
+.btn.ms{min-width:56px;min-height:44px;font-size:16px;font-weight:700}
+.msval{display:inline-block;min-width:76px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;color:var(--acc)}
+.range-fine{width:100%;margin-top:6px}
+.range-fine::-webkit-slider-thumb{width:28px;height:28px}
+.range-coarse::-webkit-slider-thumb{width:18px;height:18px}
 </style>
 </head>
 <body>
@@ -331,6 +348,116 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         <div id="proxyBox" style="display:none;margin-top:12px">
           <button class="btn block" id="proxyBtn">プロキシを生成</button>
           <div class="hint" id="proxyHint"></div>
+        </div>
+
+        <div class='field' style='margin-top:14px'>
+          <label>音声</label>
+          <div class='row' style='gap:6px'>
+            <label class='chk'><input type='radio' name='audioModeRadio' value='original' checked>元のみ</label>
+            <label class='chk'><input type='radio' name='audioModeRadio' value='added'>追加のみ</label>
+            <label class='chk'><input type='radio' name='audioModeRadio' value='bothTracks'>両方</label>
+            <label class='chk'><input type='radio' name='audioModeRadio' value='bothMix'>同時</label>
+            <label class='chk'><input type='radio' name='audioModeRadio' value='mute'>消音</label>
+          </div>
+          <div class='hint' id='audioModeHint'>元動画の音声を使います。</div>
+          <div class='hint' id='audioMixWarn' hidden>元と追加を同時にミックスします。音声のみを再エンコードします。</div>
+        </div>
+
+        <style>
+        .as-sw{position:relative;display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#0e121a;cursor:pointer;user-select:none}
+        .as-sw input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+        .as-track{position:relative;width:46px;height:26px;border-radius:999px;background:#394152;transition:background .15s;flex:0 0 auto}
+        .as-thumb{position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:999px;background:#fff;transition:transform .15s}
+        .as-sw input:checked+.as-track{background:var(--ok)}
+        .as-sw input:checked+.as-track .as-thumb{transform:translateX(20px)}
+        .as-sw input:checked~.as-state{color:var(--ok)}
+        .as-sw input:focus-visible+.as-track{box-shadow:0 0 0 3px rgba(74,163,255,.35)}
+        .as-state{font-family:var(--mono);font-weight:800}
+        .as-sw:has(#auditionToggle:disabled){opacity:.4;pointer-events:none}
+        #audioTimingBox[hidden]{display:none!important}
+        </style>
+        <div class='field' style='margin-top:12px'>
+          <label>音声タイミング調整</label>
+          <label class='as-sw'><input type='checkbox' id='auditionToggle' autocomplete='off' aria-controls='audioTimingBox' aria-expanded='false'><span class='as-track'><span class='as-thumb'></span></span><span class='as-state' id='auditionState'>OFF</span></label>
+        </div>
+
+        <div id='audioTimingBox' hidden>
+
+        <div class='field' style='margin-top:12px' id='origShiftBox'>
+          <label>元の音声のずらし (ms)</label>
+          <div class='row' style='align-items:center;gap:6px;flex-wrap:wrap'>
+            <button class='btn sm' type='button' data-shift='orig' data-delta='-100'>-100</button>
+            <button class='btn sm' type='button' data-shift='orig' data-delta='-10'>-10</button>
+            <button class='btn ms' type='button' data-shift='orig' data-delta='-1'>&#8722;1</button>
+            <span class='msval mono' id='origShiftVal'>0 ms</span>
+            <button class='btn ms' type='button' data-shift='orig' data-delta='1'>+1</button>
+            <button class='btn sm' type='button' data-shift='orig' data-delta='10'>+10</button>
+            <button class='btn sm' type='button' data-shift='orig' data-delta='100'>+100</button>
+          </div>
+          <div class='row' style='align-items:center;gap:6px'>
+            <input class='inp mono' id='origShiftInp' type='number' step='1' value='0' inputmode='numeric' style='width:110px'>
+            <span class='hint'>ms を直接入力（1ms 単位）</span>
+          </div>
+          <div class='hint'>微調整（中央＝現在の値、±100ms を相対調整）</div>
+          <input class='range-fine' id='origShiftFine' type='range' min='-100' max='100' step='1' value='0'>
+          <div class='hint'>大きく調整（中央＝現在の値、±1000ms を相対調整）</div>
+          <input id='origShiftRange' class='range-coarse' type='range' min='-1000' max='1000' step='1' value='0' style='width:100%'>
+          <div class='hint'>プラスで遅く、マイナスで速くなります。</div>
+        </div>
+
+        <div class='field' style='margin-top:12px'>
+          <label>追加する音声</label>
+          <div class='row'>
+            <button class='btn' id='addedBrowseBtn' type='button'>PC から選択</button>
+            <label class='btn ghost' for='addedFileInput'>アップロード<input type='file' id='addedFileInput' accept='audio/*,video/*' hidden></label>
+          </div>
+          <div class='hint' id='addedInfo'>未選択</div>
+        </div>
+
+        <div class='field' style='margin-top:12px' id='addedShiftBox'>
+          <label>追加音声のずらし (ms)</label>
+          <div class='row' style='align-items:center;gap:6px;flex-wrap:wrap'>
+            <button class='btn sm' type='button' data-shift='added' data-delta='-100'>-100</button>
+            <button class='btn sm' type='button' data-shift='added' data-delta='-10'>-10</button>
+            <button class='btn ms' type='button' data-shift='added' data-delta='-1'>&#8722;1</button>
+            <span class='msval mono' id='addedShiftVal'>0 ms</span>
+            <button class='btn ms' type='button' data-shift='added' data-delta='1'>+1</button>
+            <button class='btn sm' type='button' data-shift='added' data-delta='10'>+10</button>
+            <button class='btn sm' type='button' data-shift='added' data-delta='100'>+100</button>
+          </div>
+          <div class='row' style='align-items:center;gap:6px'>
+            <input class='inp mono' id='addedShiftInp' type='number' step='1' value='0' inputmode='numeric' style='width:110px'>
+            <span class='hint'>ms を直接入力（1ms 単位）</span>
+          </div>
+          <div class='hint'>微調整（中央＝現在の値、±100ms を相対調整）</div>
+          <input class='range-fine' id='addedShiftFine' type='range' min='-100' max='100' step='1' value='0'>
+          <div class='hint'>大きく調整（中央＝現在の値、±1000ms を相対調整）</div>
+          <input id='addedShiftRange' class='range-coarse' type='range' min='-1000' max='1000' step='1' value='0' style='width:100%'>
+          <div class='hint'>追加音声を進める場合はプラス、遅らせる場合はマイナスです。</div>
+        </div>
+
+        <div class='field' style='margin-top:12px'>
+          <label>追加音声の開始位置 (ms)</label>
+          <input class='inp mono' id='addedStartInp' type='number' min='0' step='1' value='0'>
+          <div class='hint'>0 にすると IN 位置を 0 として合わせます。</div>
+        </div>
+
+        <div class='row' style='margin-top:12px;align-items:center'>
+          <button class='btn' id='audioSyncBtn' type='button'>自動同期</button>
+          <span class='hint' id='syncStatus'></span>
+        </div>
+        <div id='syncResult' hidden style='margin-top:8px'>
+          <span id='syncResultText' class='mono'></span>
+          <button class='btn sm' id='useSyncBtn' type='button'>この値を使う</button>
+        </div>
+        <div class='hint' id='syncManualErr' hidden>自動同期できませんでした。手動で合わせてください</div>
+
+        <div class='row' style='margin-top:12px;align-items:center'>
+          <label class='chk'><input type='checkbox' id='muteOrigAuditionChk'>元の音声を消して聞く</label>
+          <label class='chk'><input type='checkbox' id='abCompareChk'>ずらしを耳で確認（元の音と重ねる）</label>
+        </div>
+        <span class='hint mono' id='auditionDiag'></span>
+        <label class='chk' style='margin-top:8px'><input type='checkbox' id='addedReencodeChk'>音声のみ再エンコード</label>
         </div>
       </div>
     </section>
@@ -595,11 +722,17 @@ const SETTINGS_KEY="trim.settings.v1";
 let pendingLut="";
 function saveSettings(){
   try{
+    const modeRadio=document.querySelector('input[name="audioModeRadio"]:checked');
     const s={mode:state.mode,container:$("contSel").value,outPath:$("outPath").value,
       lut:$("lutSel").value,encoder:$("encSel").value,stabilize:$("stabChk").checked,
       audio:$("audioChk").checked,vbr:$("vbrInp").value,abr:$("abrInp").value,
       inSnap:$("inSnapSel").value,outMode:$("outModeSel").value,outDir:outDir,
-      cropW:$("cropW").value,cropH:$("cropH").value,cropX:$("cropX").value,cropY:$("cropY").value};
+      cropW:$("cropW").value,cropH:$("cropH").value,cropX:$("cropX").value,cropY:$("cropY").value,
+      audioMode:modeRadio?modeRadio.value:'original',
+      audioShiftMs:clampMs($("origShiftInp")?$("origShiftInp").value:0),
+      addedShiftMs:clampMs($("addedShiftInp")?$("addedShiftInp").value:0),
+      addedStartMs:startMsVal($("addedStartInp")?$("addedStartInp").value:0),
+      addedReencode:!!$("addedReencodeChk").checked};
     localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
   }catch(_){}
 }
@@ -616,6 +749,13 @@ function loadSettings(){
   if(s.mode){state.mode=s.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===s.mode));
     $("reOpts").style.display=s.mode==="reencode"?"block":"none";}
   pendingLut=s.lut||"";
+  if(s.audioMode){const r=document.querySelector('input[name="audioModeRadio"][value="'+String(s.audioMode)+'"]');if(r)r.checked=true;}
+  const setClampMs=(id,v)=>{let x=parseInt(v,10);if(!isFinite(x))x=0;if($(id))$(id).value=x;return x;};
+  setClampMs("origShiftInp",s.audioShiftMs);if($("origShiftRange"))$("origShiftRange").value=0;
+  setClampMs("addedShiftInp",s.addedShiftMs);if($("addedShiftRange"))$("addedShiftRange").value=0;
+  setNum("addedStartInp",s.addedStartMs);
+  if($("addedReencodeChk"))$("addedReencodeChk").checked=!!s.addedReencode;
+  if(typeof updateAudioUI==='function')setTimeout(updateAudioUI,0);
 }
 function bindSettings(){
   ["contSel","outPath","lutSel","encSel","stabChk","audioChk","vbrInp","abrInp","inSnapSel","outModeSel",
@@ -623,7 +763,16 @@ function bindSettings(){
     el.addEventListener("change",saveSettings);el.addEventListener("input",saveSettings);});
 }
 async function boot(){
-  try{const t=await api("/api/token");state.token=t.token;}catch(e){const m=window.prompt("トークンを入力してください（サーバのコンソールに表示されます）");if(m){try{const ar=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:m})});if(!ar.ok)throw new Error("HTTP "+ar.status);state.token="cookie";}catch(e2){showErr("認証に失敗: "+e2.message);}}else{showErr("トークン取得に失敗: "+e.message);}}
+  try{const t=await api("/api/token");state.token=t.token;}catch(e){
+    // Retry once: reloading while the server restarts used to look like a token prompt.
+    let again=null;try{again=await api("/api/token");}catch(_){}
+    if(again){state.token=again.token;}
+    else{
+      let strong=false;try{const cc=await api("/api/config");strong=!!(cc&&cc.strongMode);}catch(_){}
+      if(!strong){showErr("トークンは不要です。サーバーに一時的につながりませんでした。再読み込みしてください（"+e.message+"）");}
+      else{const m=window.prompt("トークンを入力してください（サーバのコンソールに表示されます）");if(m){try{const ar=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:m})});if(!ar.ok)throw new Error("HTTP "+ar.status);state.token="cookie";}catch(e2){showErr("認証に失敗: "+e2.message);}}else{showErr("トークン取得に失敗: "+e.message);}}
+    }
+  }
   try{const c=await api("/api/config");state.config=c;$("modeBadge").textContent="preview: "+(c.previewMode||"auto");}catch(e){}
   loadSettings();
   await loadLuts();
@@ -970,12 +1119,20 @@ function collectOptions(){
     lut:$("lutSel").value||null,stabilize:$("stabChk").checked,audioReencode:$("audioChk").checked,
     encoder:$("encSel").value};
   const w=+$("cropW").value,h=+$("cropH").value,x=$("cropX").value,y=$("cropY").value;
-  // full frame means "no crop" so a lossless-style re-encode is not forced through a filter
   if(w>0&&h>0&&!isFullCrop())o.crop={w,h,x:+x||0,y:+y||0};
   const p=$("outPath").value.trim();if(p)o.outputPath=p;
   const ct=$("contSel").value;if(ct)o.container=ct;
   const vb=parseInt($("vbrInp").value,10);if(vb>0)o.videoBitrate=vb;
   const ab=parseInt($("abrInp").value,10);if(ab>0)o.audioBitrate=ab;
+  const am=audioModeValue();
+  o.audioTiming=!!($("auditionToggle")&&$("auditionToggle").checked);o.audioMode=am;
+  o.audioShiftMs=(am==='mute'||am==='added')?0:clampMs($("origShiftInp")?$("origShiftInp").value:0);
+  o.addedSourceId=(addedModeActive(am)&&state.addedSource)?state.addedSource.id:null;
+  o.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);
+  o.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);
+  o.addedReencode=!!$("addedReencodeChk").checked;
+  if(am==='bothMix')o.addedReencode=true;
+  if(addedModeActive(am)&&!state.addedSource)throw new Error('追加音声を選択してください');
   return o;
 }
 async function doExport(){
@@ -1156,55 +1313,142 @@ $("setOutBtn").addEventListener("click",()=>{state.outUs=Math.max(state.curUs,st
 $("inTime").addEventListener("change",()=>{const v=parseTime($("inTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.inUs=Math.min(v,state.outUs);updateInOut();updateTimeline();refreshFrames();});
 $("outTime").addEventListener("change",()=>{const v=parseTime($("outTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.outUs=Math.max(v,state.inUs);updateInOut();updateTimeline();refreshFrames();});
 
-/* ---------- timeline: grab a cursor by its handle (◆) ---------- */
-const DIA_R=20;      // half of the 40px wide grab area around a handle
-const DIA_BAND=36;   // y < 36 = the playhead handle zone / below = the IN and OUT handle zone (half of the 72px bar)
+function applyAuditionMute(){
+  if(!auditionActive)return;
+  const overlay=!!($("abCompareChk")&&$("abCompareChk").checked);
+  const userMuted=!!($("muteOrigAuditionChk")&&$("muteOrigAuditionChk").checked);
+  const origSilent=userMuted||audioModeValue()==='added';
+  if(origAudio)origAudio.muted=origSilent&&!overlay;
+  vid.muted=!(overlay&&!origSilent);
+}
+
+/* ---------- build stamp + audition diagnostics ---------- */
+const TRIM_BUILD="2026-11-08b";
+let auditionCtx=null,origNode=null,addedNode=null,origPan=null,addedPan=null,splitLR=false;
+function ensureAudioGraph(){
+  if(origNode)return;
+  const Ctx=window.AudioContext||window.webkitAudioContext;
+  if(!Ctx)return;
+  try{
+    if(!auditionCtx)auditionCtx=new Ctx();
+    origNode=auditionCtx.createMediaElementSource(origAudio);
+    const pan=auditionCtx.createStereoPanner?auditionCtx.createStereoPanner():null;
+    if(pan){origPan=pan;origPan.pan.value=splitLR?-0.9:0;origNode.connect(origPan);origPan.connect(auditionCtx.destination);}
+    else{origNode.connect(auditionCtx.destination);}
+    addedNode=auditionCtx.createMediaElementSource(addedAudio);
+    if(auditionCtx.createStereoPanner){addedPan=auditionCtx.createStereoPanner();addedPan.pan.value=splitLR?0.9:0;addedNode.connect(addedPan);addedPan.connect(auditionCtx.destination);}
+    else{addedNode.connect(auditionCtx.destination);}
+    auditionCtx.onstatechange=function(){if(auditionCtx.state!=='running'&&auditionActive){try{auditionCtx.resume();}catch(_){}}};
+  }catch(e){/* the original keeps working through whatever connected above */}
+}
+function setSplitLR(on){splitLR=!!on;if(origPan)origPan.pan.value=splitLR?-0.9:0;if(addedPan)addedPan.pan.value=splitLR?0.9:0;}
+let diagTs=0;
+function auditionDiag(force){
+  const el=$("auditionDiag");if(!el)return;
+  const now=Date.now();if(!force&&now-diagTs<250)return;diagTs=now;
+  if(!auditionActive){el.textContent="試聴停止中（動画の音がそのまま鳴ります） / "+TRIM_BUILD;return;}
+  const o=origAudio||{},a=addedAudio||{};
+  const s=function(x){return (x.readyState||0)+(x.paused?'停止':'再生')+(x.error?(' ERR'+x.error.code):'');};
+  let extra="";
+  if(vid.paused)extra+=" [動画を再生すると聴こえます]";
+  const dur=(typeof vid.duration==="number"&&isFinite(vid.duration))?vid.duration:0;
+  if(dur>0&&Math.abs(state.audioShiftMs||0)/1000>dur)extra+=" [ずらしが動画の長さを超えているため無音です]";
+  el.textContent="試聴中 元"+msLabel(state.audioShiftMs||0)+" 追加"+msLabel(state.addedShiftMs||0)+" | orig["+s(o)+"] added["+s(a)+"] muted="+(vid.muted?'y':'n')+" ctx="+(auditionCtx?auditionCtx.state:'-')+extra+" | "+TRIM_BUILD;
+}
+
+
+
+/* ---------- timeline: grab a cursor by its visual knob ---------- */
+const TL_HIT_R=24;      // half target width: 48px, about the 44px minimum
+const TL_DRAG_EPS=3;    // ignore tiny jitter
+let tlDrag=null,lastHandle=null,tlW=0,tlH=96;
+function tlMarkSelected(target){
+  lastHandle=(target==='in'||target==='out')?target:lastHandle;
+  const map={play:$('playhead'),in:$('hIn'),out:$('hOut')};
+  for(const k of ['play','in','out']){const el=map[k];if(el)el.classList.toggle('selected',k===target);}
+}
+function tlSetGrab(target,on){const el={play:$('playhead'),in:$('hIn'),out:$('hOut')}[target];if(el)el.classList.toggle('grab',!!on);}
+function tlHorizontalHit(px,cx,w){
+  if(!w)return Math.abs(px-cx)<=TL_HIT_R;
+  let left=cx-TL_HIT_R,right=cx+TL_HIT_R;
+  // Keep a usable 48px strip even when the cursor is pinned to the very edge.
+  if(left<0){left=0;right=Math.min(w,Math.max(right,2*TL_HIT_R));}
+  else if(right>w){right=w;left=Math.max(0,Math.min(left,w-2*TL_HIT_R));}
+  return px>=left&&px<=right;
+}
 function pickTimelineTarget(px,py,playX,inX,outX,last,band){
-  if(py<band)return Math.abs(px-playX)<=DIA_R?"play":null;   // band = half of the bar height
-  const dIn=Math.abs(px-inX),dOut=Math.abs(px-outX),inHit=dIn<=DIA_R,outHit=dOut<=DIA_R;
-  if(inHit&&outHit)return (last==="in"||last==="out")?last:(dIn<=dOut?"in":"out");
-  if(inHit)return "in";
-  if(outHit)return "out";
+  const sep=(band!=null&&band>0)?band:Math.round(tlH*0.46);
+  // Top zone = playhead only. Bottom zone = IN/OUT only. Empty areas return null.
+  if(py<sep)return tlHorizontalHit(px,playX,tlW)?'play':null;
+  const inHit=tlHorizontalHit(px,inX,tlW),outHit=tlHorizontalHit(px,outX,tlW);
+  if(inHit&&outHit){
+    // If two edge knobs overlap, keep the one already selected; otherwise use the nearest center.
+    if(last==='in'||last==='out')return last;
+    return Math.abs(px-inX)<=Math.abs(px-outX)?'in':'out';
+  }
+  if(inHit)return'in';
+  if(outHit)return'out';
   return null;
 }
-let tlDrag=null,lastHandle=null;
 function snap(){return {inUs:state.inUs,outUs:state.outUs,curUs:state.curUs};}
-function tlRect(){return $("timeline").getBoundingClientRect();}
+function tlRect(){return $('timeline').getBoundingClientRect();}
 function cursorPx(r){const dur=state.durationUs||1;
   return {playX:state.curUs/dur*r.width,inX:state.inUs/dur*r.width,outX:state.outUs/dur*r.width};}
 function restoreSnap(s){state.inUs=s.inUs;state.outUs=s.outUs;state.curUs=s.curUs;
-  $("video").currentTime=s.curUs/1e6;$("curTime").textContent=fmt(s.curUs);
+  $('video').currentTime=s.curUs/1e6;$('curTime').textContent=fmt(s.curUs);
   updateInOut();updateTimeline();refreshFrames();}
 function tlDown(e){
   if(tlDrag)return;                                  // one pointer at a time
   if(!state.source||state.durationUs<=0)return;
-  const r=tlRect(),p=cursorPx(r);
-  const t=pickTimelineTarget(e.clientX-r.left,e.clientY-r.top,p.playX,p.inX,p.outX,lastHandle,r.height/2);
-  if(!t)return;                                      // the rest of the bar does nothing
-  tlDrag={target:t,x0:e.clientX,before:snap(),moved:false};
-  if(t==="in"||t==="out")lastHandle=t;
-  try{$("timeline").setPointerCapture(e.pointerId);}catch(_){}
+  const r=tlRect();tlW=r.width||0;tlH=r.height||96;
+  const p=cursorPx(r),band=Math.round(r.height*0.46);
+  const t=pickTimelineTarget(e.clientX-r.left,e.clientY-r.top,p.playX,p.inX,p.outX,lastHandle,band);
+  if(!t)return;                                      // empty area: no jump
+  tlDrag={target:t,x0:e.clientX,before:snap(),moved:false,pid:e.pointerId,wasPlaying:t==='play'&&$('video')&&!$('video').paused,pausedNow:false};
+  if(t==='in'||t==='out')lastHandle=t;
+  tlMarkSelected(t);tlSetGrab(t,true);
+  try{$('timeline').setPointerCapture(e.pointerId);}catch(_){}
   e.preventDefault();
 }
 function tlMoveEv(e){
   if(!tlDrag)return;
   const dx=e.clientX-tlDrag.x0;
-  if(!tlDrag.moved&&Math.abs(dx)<3)return;           // a tiny nudge keeps the cursor where it is
+  if(!tlDrag.moved&&Math.abs(dx)<TL_DRAG_EPS)return; // tiny touch remains exactly on the knob
   tlDrag.moved=true;
-  const r=tlRect(),dur=state.durationUs||1;
-  const delta=Math.round(dx/r.width*dur);
-  if(tlDrag.target==="play"){seekTo(tlDrag.before.curUs+delta);return;}
-  if(tlDrag.target==="in")state.inUs=Math.max(0,Math.min(tlDrag.before.inUs+delta,state.outUs));
+  const r=tlRect();const dur=state.durationUs||1;
+  tlW=r.width||tlW;tlH=r.height||tlH;
+  const delta=Math.round(dx/(r.width||1)*dur);
+  if(tlDrag.target==='play'){
+    if(tlDrag.wasPlaying&&!tlDrag.pausedNow){try{$('video').pause();tlDrag.pausedNow=true;}catch(_){}}
+    seekTo(tlDrag.before.curUs+delta);return;
+  }
+  if(tlDrag.target==='in')state.inUs=Math.max(0,Math.min(tlDrag.before.inUs+delta,state.outUs));
   else state.outUs=Math.min(dur,Math.max(tlDrag.before.outUs+delta,state.inUs));
   updateInOut();updateTimeline();
 }
-function tlUp(){if(!tlDrag)return;tlDrag=null;refreshFrames();}
-function tlCancel(){if(!tlDrag)return;const s=tlDrag.before;tlDrag=null;restoreSnap(s);}
-$("timeline").addEventListener("pointerdown",tlDown);
-$("timeline").addEventListener("pointermove",tlMoveEv);
-$("timeline").addEventListener("pointerup",tlUp);
-$("timeline").addEventListener("pointercancel",tlCancel);
-$("timeline").addEventListener("lostpointercapture",()=>{if(tlDrag)tlCancel();});
+function tlFinishUp(resumePlay){
+  if(!tlDrag)return;
+  const t=tlDrag.target,pid=tlDrag.pid,pausedNow=tlDrag.pausedNow;
+  tlSetGrab(t,false);
+  tlDrag=null;
+  try{$('timeline').releasePointerCapture(pid);}catch(_){}
+  if(resumePlay&&pausedNow){try{$('video').play().catch(()=>{});}catch(_){}}
+  refreshFrames();
+}
+function tlUp(){if(tlDrag){tlFinishUp(true);}}
+function tlCancel(){
+  if(!tlDrag)return;
+  const s=tlDrag.before;
+  tlFinishUp(false);
+  restoreSnap(s);
+}
+$('timeline').addEventListener('pointerdown',tlDown);
+$('timeline').addEventListener('pointermove',tlMoveEv);
+$('timeline').addEventListener('pointerup',tlUp);
+$('timeline').addEventListener('pointercancel',tlCancel);
+$('timeline').addEventListener('lostpointercapture',()=>{if(tlDrag)tlCancel();});
+const _selectSourceTl=selectSource;
+selectSource=async function(id){const r=await _selectSourceTl(id);lastHandle=null;try{tlMarkSelected(null);}catch(_){}return r;};
 
 $("cancelJobBtn").addEventListener("click",async()=>{if(!state.activeJobId)return;
   try{await api("/api/jobs/"+state.activeJobId+"/cancel",{method:"POST"});toast("停止を要求しました");}
@@ -1288,6 +1532,169 @@ $("lutPickBtn").addEventListener("click",()=>{pickDir=true;pickLut=true;pickActi
 $("lutUploadBtn").addEventListener("click",()=>$("lutFileInput").click());
 $("lutFileInput").addEventListener("change",e=>{const f=e.target.files&&e.target.files[0];if(f)uploadLut(f);e.target.value="";});
 $("reloadBtn").addEventListener("click",boot);
+
+/* ---------- audio panel ---------- */
+state.audioMode='original';state.audioShiftMs=0;state.addedShiftMs=0;state.addedStartMs=0;state.addedSource=null;
+let syncTimer=null,lastSyncShift=0,pendingAddedOpen=false,pendingAddedUpload=false;
+let origAudio=null,addedAudio=null,auditionActive=false,auditionRaf=0;
+function setNum(id,v){const el=$(id);if(!el)return;let x=parseInt(v,10);if(!isFinite(x))x=0;if(id==='addedStartInp'&&x<0)x=0;el.value=x;}
+function audioModeValue(){const el=document.querySelector('input[name="audioModeRadio"]:checked');return el?el.value:'original';}
+function clampMs(v){v=parseInt(v,10);if(!isFinite(v))v=0;return v;}
+function startMsVal(v){v=parseInt(v,10);if(!isFinite(v)||v<0)v=0;return v;}
+function audioShiftValue(target){return target==='orig'?clampMs($("origShiftInp")?$("origShiftInp").value:0):clampMs($("addedShiftInp")?$("addedShiftInp").value:0);}
+function msLabel(v){return (v>0?'+':'')+v+' ms';}
+function setAudioShift(target,v,fromJog){v=clampMs(v);if(!fromJog){["origShiftFine","addedShiftFine","origShiftRange","addedShiftRange"].forEach(function(id){if($(id))$(id).value=0;});}const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;if(rng)rng.value=v;if(fine)fine.value=Math.max(-100,Math.min(100,v));if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
+  // 1ms is far below the 80ms drift guard, so the audition must be re-seeked at once.
+  if(auditionActive){syncAudition(true);queueAuditionSync();}}
+function addedModeActive(m){m=m||audioModeValue();return m==='added'||m==='bothTracks'||m==='bothMix';}
+function origModeActive(m){m=m||audioModeValue();return m==='original'||m==='bothTracks'||m==='bothMix';}
+function renderAddedInfo(){const el=$("addedInfo");if(!el)return;if(state.addedSource){const d=state.addedSource.durationUs;el.textContent=(state.addedSource.name||'追加音声')+(d!=null?' / '+fmt(d):'');}else{el.textContent='未選択';}}
+function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").disabled=!hasSrc;if($("auditionToggle"))$("auditionToggle").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();}
+function ensureAuditionAudio(){if(!origAudio){origAudio=new Audio();origAudio.preload='metadata';}if(!addedAudio){addedAudio=new Audio();addedAudio.preload='metadata';}}
+function queueAuditionSync(){if(!auditionActive)return;if(!auditionRaf)auditionRaf=requestAnimationFrame(auditionTick);}
+function auditionTick(){auditionRaf=0;if(!auditionActive)return;syncAudition();auditionDiag();if(auditionActive)auditionRaf=requestAnimationFrame(auditionTick);}
+let auditionWantPlay=false;
+function syncAudition(force){
+  if(!auditionActive||!state.source)return;
+  ensureAuditionAudio();
+  const mode=audioModeValue();
+  const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
+  const t=vid.currentTime||0;
+  /* Hard seek only on a real desync; a <=1% speed trim smooths small drift silently. */
+  const settle=function(el,target,hardset){
+    if(!el||el.readyState<1||el.seeking)return;
+    const d=(el.currentTime||0)-target;
+    if(hardset||force||Math.abs(d)>0.2){try{el.currentTime=target;}catch(_){}el.playbackRate=1;return;}
+    const k=Math.abs(d)>0.03?Math.max(-0.01,Math.min(0.01,-d*0.2)):0;
+    if(Math.abs(el.playbackRate-(1+k))>0.0005)el.playbackRate=1+k;
+  };
+  const follow=function(el){
+    if(!el)return;
+    if(auditionWantPlay&&!vid.paused){if(el.paused)el.play().catch(function(){});}
+    else if(auditionWantPlay&&!el.paused){el.pause();}
+  };
+  /* While the target position is still negative the track must stay silent AND still:
+     pausing avoids rolling forward, so the onset needs no rewind seek. */
+  const handle=function(el,flag,target){
+    if(!el||!el.src)return;
+    if(target<0){
+      el.volume=0;
+      el.dataset[flag]='1';
+      if(!el.paused)el.pause();
+      return;
+    }
+    el.volume=1;
+    const onset=el.dataset[flag]==='1';
+    if(onset)delete el.dataset[flag];
+    settle(el,target,onset);
+    follow(el);
+  };
+  handle(origAudio,'head',t-s1/1000);
+  const useAdded=!!state.addedSource&&addedModeActive(mode);
+  if(addedAudio&&useAdded&&addedAudio.src){
+    handle(addedAudio,'pre',((state.addedStartMs||0)/1000-s2/1000)+(t-(state.inUs||0)/1e6));
+  }else if(addedAudio&&!addedAudio.paused){addedAudio.pause();}
+}
+function startAudition(){
+  if(!($("auditionToggle")&&$("auditionToggle").checked))return;
+  if(auditionActive)return;
+  if(!state.source){toast('動画を読み込んでください',true);return;}
+  if(audioModeValue()==='mute'){toast('消音中は確認できません',true);return;}
+  ensureAuditionAudio();
+  const mode=audioModeValue();
+  const audSrc=(vid.currentSrc||vid.src||('/api/sources/'+state.source.id+'/media'));
+  if(origAudio.getAttribute('data-src')!==audSrc){origAudio.src=audSrc;origAudio.setAttribute('data-src',audSrc);}
+  const useAdded=!!state.addedSource&&addedModeActive(mode);
+  if(useAdded){
+    const ap='/api/sources/'+state.addedSource.id+'/media';
+    const aid=state.addedSource.id;
+    if(addedAudio.getAttribute('data-src')!==ap){addedAudio.src=ap;addedAudio.setAttribute('data-src',ap);}
+    if(!addedAudio.getAttribute('data-fallback')){addedAudio.setAttribute('data-fallback','1');addedAudio.onerror=function(){this.src='/api/sources/'+aid+'/media?variant=original';if(!vid.paused){try{this.play().catch(function(){});}catch(_){}}};}
+  }else{
+    addedAudio.removeAttribute('data-src');
+    addedAudio.removeAttribute('src');
+    try{addedAudio.load();}catch(_){}
+  }
+  origAudio.volume=1;addedAudio.muted=false;addedAudio.volume=1;
+  origAudio.playbackRate=1;addedAudio.playbackRate=1;
+  auditionWantPlay=true;
+  const t0=vid.currentTime||0;
+  const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
+  const oTarget=t0-s1/1000;
+  const local=t0-(state.inUs||0)/1e6;
+  const base=(state.addedStartMs||0)/1000-s2/1000;
+  const align=function(el,target){
+    const apply=function(){try{el.currentTime=Math.max(0,target);}catch(_){}};
+    if(el.readyState>=1)apply();
+    else el.addEventListener('loadedmetadata',apply,{once:true});
+  };
+  if(oTarget<0){origAudio.volume=0;origAudio.dataset.head='1';}
+  else{origAudio.volume=1;delete origAudio.dataset.head;align(origAudio,oTarget);}
+  if(useAdded){
+    const aTarget=base+Math.max(0,local);
+    const held=base+local<0;
+    if(held){addedAudio.volume=0;addedAudio.dataset.pre='1';}
+    else{addedAudio.volume=1;delete addedAudio.dataset.pre;align(addedAudio,aTarget);}
+  }
+  ensureAudioGraph();
+  if(auditionCtx&&auditionCtx.state==='suspended'){try{auditionCtx.resume();}catch(_){}}
+  auditionActive=true;
+  applyAuditionMute();
+  if(!vid.paused){
+  try{
+    const pa=origAudio.play();if(pa&&pa.catch)pa.catch(function(){toast('試聴の再生がブロックされました。もう一度タップしてください',true);});
+    if(useAdded){const pb=addedAudio.play();if(pb&&pb.catch)pb.catch(function(){});}
+  }catch(_){}
+  }
+  setAuditionToggle(true);
+  syncAudition(true);queueAuditionSync();auditionDiag(true);
+}
+function setAuditionToggle(on){const t=$("auditionToggle"),s=$("auditionState"),b=$("audioTimingBox");if(t){t.checked=!!on;t.setAttribute('aria-expanded',on?'true':'false');}if(s)s.textContent=on?'ON':'OFF';if(b)b.hidden=!on;}
+function stopAudition(){auditionActive=false;auditionWantPlay=false;auditionDiag(true);if(auditionRaf){cancelAnimationFrame(auditionRaf);auditionRaf=0;}if(origAudio){try{origAudio.pause();origAudio.playbackRate=1;}catch(_){}}if(addedAudio){try{addedAudio.pause();addedAudio.playbackRate=1;}catch(_){}}vid.muted=false;setAuditionToggle(false);}
+function toggleAudition(){if(auditionActive)stopAudition();else startAudition();}
+function setSyncStatus(t){if($("syncStatus"))$("syncStatus").textContent=t||'';}
+function firstNumber(){for(let i=0;i<arguments.length;i++){const n=parseFloat(arguments[i]);if(isFinite(n))return n;}return null;}
+function handleSyncResult(r){r=r||{};const ok=r.ok===undefined?true:!!r.ok;const ms=firstNumber(r.shiftMs,r.offsetMs,r.deltaMs,r.estimateMs,r.ms,r.value);const conf=firstNumber(r.confidence,r.score,r.certainty,r.reliability,null);if(!ok||ms==null){$("syncResult").hidden=true;setSyncStatus('');$("syncManualErr").hidden=false;$("audioSyncBtn").disabled=false;return;}lastSyncShift=Math.round(ms);$("syncResultText").textContent='推定 '+lastSyncShift+'ms（信頼度 '+(conf==null?'—':conf)+'）';$("syncResult").hidden=false;$("syncManualErr").hidden=true;setSyncStatus('');$("audioSyncBtn").disabled=false;}
+function pollSyncJob(id){if(syncTimer){clearInterval(syncTimer);syncTimer=null;}let n=0;syncTimer=setInterval(async()=>{n++;if(n>120){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('タイムアウト');return;}try{const d=await api('/api/jobs/'+id,{silent:true});const j=d.job||{};if(j.status==='done'){clearInterval(syncTimer);syncTimer=null;handleSyncResult(j.result||{});}else if(j.status==='error'||j.status==='cancelled'){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus(j.error||'失敗');}}catch(_){}},1000);}
+async function autoSync(){if(!state.source||!state.addedSource){toast('追加音声を選択してください',true);return;}if(!addedModeActive()){toast('追加音声を使うモードを選択してください',true);return;}const btn=$("audioSyncBtn");if(btn)btn.disabled=true;$("syncResult").hidden=true;$("syncManualErr").hidden=true;setSyncStatus('同期中…');try{const d=await api('/api/audio/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceId:state.source.id,addedSourceId:state.addedSource.id,startUs:Math.round(state.inUs),windowMs:20000,rangeMs:3000,windows:3})});pollSyncJob(d.jobId);}catch(e){$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('同期要求失敗');}}
+const _selectSource=selectSource;selectSource=async function(id){await _selectSource(id);stopAudition();updateAudioUI();};
+const _openLocal=openLocal;openLocal=async function(path){if(pendingAddedOpen){pendingAddedOpen=false;clearErr();try{const d=await api('/api/sources/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});state.addedSource=d.source;hideBrowse();renderAddedInfo();updateAudioUI();toast('追加音声を読み込み: '+(d.source.name||''));}catch(e){showErr('追加音声を開けませんでした: '+e.message);}return;}await _openLocal(path);};
+const _doUpload=doUpload;doUpload=async function(file){if(pendingAddedUpload){pendingAddedUpload=false;clearErr();toast('追加音声をアップロード中…');const fd=new FormData();fd.append('file',file);try{const d=await api('/api/sources/upload',{method:'POST',body:fd,timeoutMs:1800000});state.addedSource=d.source;renderAddedInfo();updateAudioUI();toast('追加音声を追加: '+(d.source.name||''));}catch(e){showErr('追加音声のアップロード失敗: '+e.message);}return;}await _doUpload(file);};
+const _hideBrowse=hideBrowse;hideBrowse=function(){pendingAddedOpen=false;pendingAddedUpload=false;_hideBrowse();};
+document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventListener('change',()=>{stopAudition();saveSettings();updateAudioUI();}));
+['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const rng=$(target==='orig'?'origShiftRange':'addedShiftRange');if(rng)rng.value=c;if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();if(auditionActive){syncAudition(true);queueAuditionSync();}});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
+  /* The sliders are relative jog controls: the centre always means the value in
+     use, so dragging right/left nudges it instead of jumping to an absolute ms. */
+  [['origShiftFine','orig'],['addedShiftFine','added'],['origShiftRange','orig'],['addedShiftRange','added']].forEach(function(pair){
+    const el=$(pair[0]);if(!el)return;const target=pair[1];
+    let base=0,dragging=false;
+    const cur=function(){return (target==='orig'?(state.audioShiftMs||0):(state.addedShiftMs||0));};
+    const begin=function(){base=cur();dragging=true;};
+    let down=false;
+    el.addEventListener('pointerdown',function(){down=true;begin();});
+    el.addEventListener('input',function(){if(!dragging)begin();setAudioShift(target,base+(parseInt(el.value,10)||0),true);});
+    const end=function(){down=false;dragging=false;el.value=0;base=cur();};
+    /* A change event while the pointer is still down must not yank the handle. */
+    el.addEventListener('change',function(){if(!down)end();});
+    el.addEventListener('pointerup',end);
+    el.addEventListener('pointercancel',end);
+  });
+
+document.querySelectorAll('[data-shift]').forEach(b=>b.addEventListener('click',()=>{setAudioShift(b.dataset.shift,audioShiftValue(b.dataset.shift)+(parseInt(b.dataset.delta,10)||0));}));
+if($("addedStartInp"))$("addedStartInp").addEventListener('input',()=>{state.addedStartMs=startMsVal($("addedStartInp").value);saveSettings();if(auditionActive){syncAudition(true);queueAuditionSync();}});
+if($("addedReencodeChk"))$("addedReencodeChk").addEventListener('change',saveSettings);
+if($("audioSyncBtn"))$("audioSyncBtn").addEventListener('click',autoSync);
+if($("useSyncBtn"))$("useSyncBtn").addEventListener('click',()=>{setAudioShift('added',lastSyncShift);$("syncResult").hidden=true;toast('追加音声のずらしを設定しました');});
+if($("addedBrowseBtn"))$("addedBrowseBtn").addEventListener('click',()=>{if($("addedBrowseBtn").disabled)return;pendingAddedOpen=true;pickDir=false;pickAction=null;pickSource=null;pickLut=false;$("useDirBtn").textContent='このフォルダを使う';$("useDirBtn").style.display='none';$("browseTitle").textContent='追加する音声を選択';openBrowse();});
+if($("addedFileInput"))$("addedFileInput").addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f){pendingAddedUpload=true;doUpload(f);e.target.value='';}});
+if($("auditionToggle"))$("auditionToggle").addEventListener('change',e=>{if(e.target.checked){startAudition();setAuditionToggle(auditionActive);}else stopAudition();});
+if($("abCompareChk"))$("abCompareChk").addEventListener('change',()=>{applyAuditionMute();if(auditionActive){syncAudition(true);queueAuditionSync();}});
+if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").addEventListener('change',()=>{applyAuditionMute();});
+vid.addEventListener('play',()=>{if(auditionActive)syncAudition(true);queueAuditionSync();});
+vid.addEventListener('pause',()=>{if(auditionActive)syncAudition(true);});
+vid.addEventListener('seeked',()=>{if(auditionActive)syncAudition(true);queueAuditionSync();});
+document.addEventListener('visibilitychange',()=>{if(!auditionActive)return;if(document.hidden){if(origAudio&&!origAudio.paused)origAudio.pause();if(addedAudio&&!addedAudio.paused)addedAudio.pause();}else{queueAuditionSync();}});
+updateAudioUI();setAudioShift('orig',state.audioShiftMs||0);setAudioShift('added',state.addedShiftMs||0);setAuditionToggle(false);auditionDiag(true);setInterval(function(){auditionDiag();},500);
 $("spinEscape").addEventListener("click",releaseSpinner);
 
 /* reveal */

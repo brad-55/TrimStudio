@@ -247,7 +247,7 @@ def actual_range(db, source, start_us, end_us, in_snap, out_mode):
     return actual_start, actual_end, fallback
 
 
-def output_path_for(source, start_us, end_us, container, explicit=None, has_video=True, options=None):
+def output_path_for(source, start_us, end_us, container, explicit=None, has_video=True, options=None, is_taken=None):
     ext = OUTPUT_EXT.get(container, "mkv")
     if container == "asf":
         # ASF holds both WMV and WMA; name the output for what it actually carries.
@@ -273,13 +273,13 @@ def output_path_for(source, start_us, end_us, container, explicit=None, has_vide
     if target.suffix.lower() != "." + ext:
         target = target.with_suffix("." + ext)
     target = _fit_length(target, 240)
-    return _avoid_collision(target)
+    return _avoid_collision(target, is_taken)
 
 
-def _avoid_collision(target):
+def _avoid_collision(target, is_taken=None):
     candidate = target
     index = 1
-    while candidate.exists():
+    while candidate.exists() or (is_taken is not None and is_taken(candidate)):
         candidate = target.with_name(target.stem + "-" + str(index) + target.suffix)
         index += 1
     return candidate
@@ -295,7 +295,7 @@ def _fit_length(path, max_len=240):
     return path.with_name(path.stem[:keep] + suffix)
 
 
-def plan(cfg, db, source, start_us, end_us, options):
+def plan(cfg, db, source, start_us, end_us, options, is_taken=None):
     streams = json.loads(source.get("streams_json") or "[]")
     container, selected, excluded = decide_streams(source, streams, options.get("container"))
     kind = "video" if video_streams(streams) else (
@@ -323,15 +323,154 @@ def plan(cfg, db, source, start_us, end_us, options):
             # seek one second earlier so ffmpeg clamps to zero and keeps it intact.
             seek_us = actual_start - 1000000
     has_video = any(st.get("type") == "video" for st in selected)
-    out = output_path_for(source, actual_start, actual_end, container, options.get("outputPath"), has_video, options)
+    out = output_path_for(source, actual_start, actual_end, container, options.get("outputPath"), has_video, options, is_taken)
     warnings = []
     for st in excluded:
         warnings.append("stream " + str(st.get("index")) + " (" + str(st.get("type")) + "/" + str(st.get("codec")) + ") was excluded as incompatible")
     if fallback:
         warnings.append("inSnap=next had no room before endUs; fell back to prev keyframe")
+    audio_plan = _audio_plan(db, selected, container, options, actual_start, actual_end, warnings)
     return {"selected": selected, "excluded": excluded, "container": container, "kind": kind,
             "actualStartUs": actual_start, "actualEndUs": actual_end, "seekUs": seek_us,
-            "outputPath": str(out), "warnings": warnings, "fallback": fallback}
+            "outputPath": str(out), "warnings": warnings, "fallback": fallback,
+            "audioPlan": audio_plan}
+
+
+AUDIO_MODES = ("original", "added", "bothTracks", "bothMix", "mute")
+# Kept for reference only: the API no longer clamps the shift.
+AUDIO_MAX_SHIFT_US = None
+
+
+def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=True, has_orig=True):
+    """Per-input mux offsets in microseconds (export time base); positive plays later.
+
+    Lossless rule: a stream-copied audio track cannot be advanced by dropping packets
+    without quantising the shift to the audio frame length, so a negative audio shift is
+    realised by moving the video (and the other non-audio streams) later by the same
+    amount. Packets are never re-encoded either way.
+
+    Plan 0.8b: the original shift only exists when the original audio is part of the
+    output AND a reference stream anchors it (the video; or, for the audio-only
+    "original" route, the audio stream itself carries the signed shift).  The added
+    track always follows the video term so it stays at its own offset relative to the
+    video.  "origShiftUs"/"addedShiftUs" report the signed shifts that are actually
+    applied (0 when the configuration ignores them) so the filter based mix route can
+    reuse the same ignore rules.
+    """
+    if mode not in AUDIO_MODES:
+        mode = "original"
+    if mode == "mute":
+        return {"video": 0, "audio": 0, "added": 0, "audioStreams": 0,
+                "origShiftUs": 0, "addedShiftUs": 0}
+    applies = mode in ("original", "bothTracks", "bothMix") and has_orig and (has_video or mode == "original")
+    orig = int(audio_shift_us or 0) if applies else 0
+    if has_video:
+        video = max(0, -orig)
+        audio = max(0, orig)
+    else:
+        video = 0
+        audio = orig  # the audio stream is its own reference: keep the sign (plan 0.7)
+    added = 0
+    if has_added and mode in ("added", "bothTracks", "bothMix"):
+        # The added track is placed relative to the reference stream, and when the
+        # original audio pushes the video later the added track has to follow it.
+        added = video + max(0, added_shift_us or 0)
+    streams = {"original": 1, "added": 1, "bothTracks": 2, "bothMix": 1}.get(mode, 1)
+    return {"video": video, "audio": audio, "added": added, "audioStreams": streams,
+            "origShiftUs": orig, "addedShiftUs": int(added_shift_us or 0) if (has_added and mode in ("added", "bothTracks", "bothMix")) else 0}
+
+
+def added_head_skip_us(added_shift_us):
+    """How much of the added file's head to skip so it is never placed before zero."""
+    return max(0, -(added_shift_us or 0))
+
+
+def clamp_added_start(added_start_us, added_shift_us, added_duration_us):
+    """Keep addedStartMs + max(0, -addedShiftMs) inside the added file."""
+    skip = added_head_skip_us(added_shift_us)
+    start = max(0, added_start_us or 0)
+    if added_duration_us:
+        start = min(start, max(0, added_duration_us - skip))
+    return start
+
+
+def added_streams(streams):
+    """Audio streams that can be added from another file (first audio stream)."""
+    audio = [st for st in streams if st.get("type") == "audio"]
+    return audio[:1]
+
+
+def _added_cut_args(source, out, selected, start_us, end_us, head_skip_us=0, audio_codec=None, audio_bitrate=None):
+    """Cut the added file to the export range (packet copy) and drop the shifted head."""
+    seek = start_us + max(0, head_skip_us)
+    args = ["-i", long_path(source["path"]), "-ss", ffmpeg_tools.format_seconds(seek),
+            "-t", ffmpeg_tools.format_seconds(max(0, end_us - seek))]
+    for st in selected:
+        args += ["-map", "0:" + str(st["index"])]
+    if audio_codec:
+        # addedReencode: only the added track is re-encoded (plan 0.5); the original
+        # audio of the export never passes through here.
+        args += ["-c:a", audio_codec]
+        if audio_bitrate:
+            args += ["-b:a", str(int(audio_bitrate)) + "k"]
+    else:
+        args += ["-c", "copy"]
+    args += ["-avoid_negative_ts", "make_zero", long_path(out)]
+    return args
+
+
+def _shifted_mux_args(video_tmp, av_tmp, added_tmp, out, container, start_us, offsets, length_us=None):
+    """Mux the video/audio/(added) parts while preserving the requested audio offsets.
+
+    This is the plan's 2/3-input mux: every input gets its own -itsoffset and an
+    explicit -map, so "bothTracks" (video + original audio + added audio) works beside
+    the plain routes.  offsets comes from audio_offsets(): {"video": us, "audio": us,
+    "added": us}.  A positive value plays that stream later.  Timestamps are the only
+    thing that changes, so every packet is copied bit for bit.  video_tmp may be None
+    for audio-only exports.  length_us (plan 0.9) caps the output at the requested
+    interval length on the audio timing routes.  When nothing is shifted this matches
+    the previous mux (make_zero + chapters), so existing exports are unchanged.
+    """
+    base = 0  # every cut temp is 0-anchored, so the offsets are the absolute placements
+    shifted = any(offsets.get(k) for k in ("video", "audio", "added"))
+    inputs = []
+    count = 0
+    for tmp, key in ((video_tmp, "video"), (av_tmp, "audio"), (added_tmp, "added")):
+        if tmp is None:
+            continue
+        inputs += ["-itsoffset", ffmpeg_tools.format_seconds(base + offsets.get(key, 0)),
+                   "-i", long_path(tmp)]
+        count += 1
+    if not count:
+        raise RuntimeError("nothing to mux")
+    # every -map has to come after every -i: between inputs ffmpeg would parse it as an
+    # input option and refuse to open the next file
+    args = inputs + [x for i in range(count) for x in ("-map", str(i))]
+    args += ["-c", "copy", "-map_metadata", "0"]
+    if shifted:
+        # make_zero would pull every stream back to zero and destroy the deliberate gap,
+        # so keep the timestamps and let the muxer write an edit list (MP4) instead.
+        args += ["-avoid_negative_ts", "disabled"]
+        if container in ("mp4", "mov", "ipod"):
+            args += ["-use_editlist", "1"]
+    else:
+        args += ["-avoid_negative_ts", "make_zero"]
+    if container in CHAPTER_CONTAINERS:
+        # Plan 0.8: chapters survive only when the video timestamps stay put.  The
+        # original-audio shift moves the whole timeline (video term included), so both
+        # the video and the audio offset disable chapters; an added-only shift keeps
+        # them.
+        keep = not (offsets.get("video") or offsets.get("audio"))
+        args += ["-map_chapters", "0" if keep else "-1"]
+    if length_us is not None:
+        # -t counts from timeline zero, so a delayed stream needs the head room too or
+        # its tail would be cut short (the stream itself still spans length_us).
+        cap = length_us + max(0, offsets.get("video", 0), offsets.get("audio", 0), offsets.get("added", 0))
+        args += ["-t", ffmpeg_tools.format_seconds(max(0, cap))]
+    if container in ("mp4", "mov"):
+        args += ["-movflags", "+faststart"]
+    args += [long_path(out)]
+    return args
 
 
 def build_audio_copy_args(source, out, selected, start_us, end_us, container=""):
@@ -374,7 +513,7 @@ def _av_cut_args(source, out, other_selected, start_us, end_us):
     return args
 
 
-def _mux_args(video_tmp, av_tmp, out, container, start_us):
+def _mux_args(video_tmp, av_tmp, out, container, start_us, length_us=None):
     # Shift every input by -startUs so the first retained packet lands at zero; this
     # keeps video and audio aligned without touching their codec payloads.
     offset = ffmpeg_tools.format_seconds(-start_us)
@@ -386,6 +525,8 @@ def _mux_args(video_tmp, av_tmp, out, container, start_us):
     args += ["-c", "copy", "-map_metadata", "0", "-avoid_negative_ts", "make_zero"]
     if container in CHAPTER_CONTAINERS:
         args += ["-map_chapters", "0"]
+    if length_us is not None:
+        args += ["-t", ffmpeg_tools.format_seconds(max(0, length_us))]
     if container in ("mp4", "mov"):
         args += ["-movflags", "+faststart"]
     args += [long_path(out)]
@@ -581,9 +722,162 @@ def build_reencode_args(cfg, source, out, container, selected, start_us, end_us,
     return args, detect, work
 
 
+def _ms_us(v):
+    """Milliseconds (the API unit) to microseconds (the internal time base)."""
+    try:
+        return int(v) * 1000
+    except (TypeError, ValueError):
+        return 0
+
+
+def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
+    """Resolve the audio timing options into a concrete per-export plan (docs/PLAN_AUDIO_EXPORT.md).
+
+    Returns None when nothing but the plain original audio is requested so the legacy
+    lossless path stays byte for byte identical (plan 0.9 / E2E 18).
+    """
+    mode = options.get("audioMode") or "original"
+    if mode not in AUDIO_MODES:
+        mode = "original"
+    shift_us = _ms_us(options.get("audioShiftMs"))
+    added_shift_us = _ms_us(options.get("addedShiftMs"))
+    added_start_us = max(0, _ms_us(options.get("addedStartMs")))
+    added_reencode = bool(options.get("addedReencode"))
+    has_video = any(st.get("type") == "video" for st in selected)
+    orig_audio = next((st for st in selected if st.get("type") == "audio"), None)
+    length_us = max(0, end_us - start_us)
+
+    added = None
+    if mode in ("added", "bothTracks", "bothMix"):
+        row = db.get_source(options.get("addedSourceId") or "")
+        ast = added_streams(json.loads((row or {}).get("streams_json") or "[]")) if row else []
+        if not ast:
+            warnings.append("追加音声を利用できないため元の音声で書き出します")
+            if mode in ("added", "bothTracks"):
+                mode = "original"
+        else:
+            if mode == "bothTracks" and container in ("flv",):
+                raise ValueError("このコンテナは音声2トラックを保持できません（mp4/mkv を選択してください）")
+            compat = ffmpeg_tools.copy_compatibility(ast[0], container)
+            if not compat and not added_reencode:
+                # The API rejects this combination before the job starts; this guard
+                # covers direct callers.
+                raise ValueError("追加音声(" + str(ast[0].get("codec")) + ")は" + str(container) +
+                                 "に無変換で入れられません（音声のみ再エンコードを有効にしてください）")
+            dur = int((row or {}).get("duration_us") or 0)
+            if mode == "bothMix":
+                # plan 0.4: the mix route never uses head_skip (atrim does the job).
+                skip = 0
+                start = min(added_start_us, dur) if dur else added_start_us
+            else:
+                skip = added_head_skip_us(added_shift_us)
+                start = clamp_added_start(added_start_us, added_shift_us, dur)
+            added = {"source": row, "streams": ast, "reencode": (not compat),
+                     "startUs": start, "headSkipUs": skip,
+                     "codec": REENCODE_AUDIO_CODECS.get(container, "aac")}
+
+    offsets = audio_offsets(mode, shift_us, added_shift_us, added is not None,
+                            has_video=has_video, has_orig=orig_audio is not None)
+    if mode == "added" and shift_us:
+        warnings.append("追加のみモードでは元音声のずらし(audioShiftMs)は適用されません")
+    if not has_video and mode in ("added", "bothTracks", "bothMix") and shift_us:
+        warnings.append("映像のない出力では元音声のずらし(audioShiftMs)は適用されません")
+    if orig_audio is None and shift_us:
+        warnings.append("元音声がないため audioShiftMs は適用されません")
+    if mode == "mute" and (shift_us or added_shift_us):
+        warnings.append("消音ではずらしを無視します")
+    if mode == "bothMix":
+        warnings.append("音声をミックスするため音声のみ再エンコードします（無変換ではなくなります）")
+    if added is not None and added["reencode"]:
+        warnings.append("追加音声のみ再エンコードします（このコンテナには無変換で入れられないため）")
+    if length_us > 0 and abs(offsets.get("origShiftUs") or 0) >= length_us:
+        warnings.append("元音声のずらしが区間長以上のため元音声は無音になります")
+    if added is not None:
+        dur = int((added["source"] or {}).get("duration_us") or 0)
+        avail = max(0, dur - added["startUs"] - (0 if mode == "bothMix" else added["headSkipUs"]))
+        if dur and avail < length_us:
+            warnings.append("追加音声が区間より短いため途中から無音になります"
+                            + ("" if has_video else "（音声のみ出力では出力も短くなります）"))
+        if added["headSkipUs"] >= length_us and length_us > 0:
+            warnings.append("追加音声のずらしが区間長以上のため追加音声は無音になります")
+
+    if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added")):
+        return None
+    return {"mode": mode, "offsets": offsets,
+            "origShiftUs": offsets.get("origShiftUs", 0), "addedShiftUs": offsets.get("addedShiftUs", 0),
+            "added": added, "lengthUs": length_us}
+
+
+def _mix_filter(shift_us):
+    """The per-input audio filter for the mix route (plan 0.4)."""
+    if not shift_us:
+        return "anull"
+    if shift_us > 0:
+        return "adelay=" + str(int(round(shift_us / 1000.0))) + ":all=1"
+    return "atrim=start=" + ffmpeg_tools.format_seconds(-shift_us) + ",asetpts=PTS-STARTPTS"
+
+
+def build_mix_args(cfg, source, added_source, out, container, start_us, length_us,
+                   orig_stream, added_stream, added_start_us, orig_shift_us, added_shift_us,
+                   options, final=False):
+    """Encode the mixed audio track for bothMix (plan 0.4).
+
+    amix cannot express a negative delay, so advancing a track is done by trimming its
+    head with atrim+asetpts and delaying uses adelay.  The video is never touched here:
+    the caller muxes the copied video with this mixed audio afterwards, so the video
+    timestamps stay at zero and chapters survive (plan 0.4).  With final=True the mix
+    IS the whole export (audio-only bothMix).
+    """
+    args = []
+    filt = []
+    slot = 0
+    if orig_stream is not None:
+        tail = max(0, -orig_shift_us)
+        args += ["-ss", ffmpeg_tools.format_seconds(max(0, start_us)),
+                 "-t", ffmpeg_tools.format_seconds(max(0, length_us + tail)),
+                 "-i", long_path(source["path"])]
+        filt.append("[0:" + str(orig_stream["index"]) + "]" + _mix_filter(orig_shift_us) + "[o]")
+        slot += 1
+    if added_source is not None and added_stream is not None:
+        tail = max(0, -added_shift_us)
+        dur = int((added_source or {}).get("duration_us") or 0)
+        t_add = length_us + tail
+        if dur:
+            t_add = min(t_add, max(0, dur - max(0, added_start_us)))
+        args += ["-ss", ffmpeg_tools.format_seconds(max(0, added_start_us)),
+                 "-t", ffmpeg_tools.format_seconds(max(0, t_add)),
+                 "-i", long_path(added_source["path"])]
+        filt.append("[" + str(slot) + ":" + str(added_stream["index"]) + "]" + _mix_filter(added_shift_us) + "[a]")
+        slot += 1
+    if slot == 0:
+        raise RuntimeError("no audio to mix")
+    if slot == 2:
+        filt.append("[o][a]amix=inputs=2:normalize=0:duration=longest[aout]")
+        label = "[aout]"
+    else:
+        label = "[o]" if orig_stream is not None else "[a]"
+    args += ["-filter_complex", ";".join(filt), "-map", label]
+    codec = REENCODE_AUDIO_CODECS.get(container, "aac")
+    args += ["-c:a", codec]
+    kbps = _audio_bitrate(options, added_stream or orig_stream)
+    if codec not in LOSSLESS_AUDIO_CODECS:
+        args += ["-b:a", str(int(kbps)) + "k"]
+    # cap the mix here: amix duration=longest runs past the interval when a track is
+    # delayed, and the later mux cannot trim that tail (its -t would race make_zero)
+    args += ["-t", ffmpeg_tools.format_seconds(max(0, length_us))]
+    if final and container in ("ipod", "mp4", "mov"):
+        args += ["-movflags", "+faststart"]
+    args += [long_path(out)]
+    return args
+
+
+NO_ELST_CONTAINERS = {"wav", "mp3", "adts", "aiff", "flac", "ogg", "avi", "flv", "mpeg", "asf", "webm"}
+
+
 def start_export(cfg, db, jobs, source, start_us, end_us, options):
     def runner(job):
-        built = plan(cfg, db, source, start_us, end_us, options)
+        built = plan(cfg, db, source, start_us, end_us, options,
+                     is_taken=lambda p: jobs.is_output_reserved(p))
         explicit = bool(options.get("outputPath"))
         out = Path(built["outputPath"])
         out_dir = out.parent
@@ -617,6 +911,8 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
             raise RuntimeError(
                 "出力先に書き込めません: " + str(out_dir) + " (" + why + ")。"
                 "フォルダの書き込み権限を確認するか、別の出力先を指定してください。")
+        if not jobs.reserve_output(str(out), job.id, alias=options.get("outputPath")):
+            raise RuntimeError("出力先が別の処理で使用中です。完了を待つか、別のファイル名を指定してください: " + str(out))
         out.parent.mkdir(parents=True, exist_ok=True)
         temp = out.with_name(out.stem + ".part" + out.suffix)
         ff, fp = ffmpeg_tools.ffmpeg_paths(cfg)
@@ -637,46 +933,137 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                     run_ffmpeg_job(job, ff, detect, total_us=total, cwd=str(work))
                 job.update(message="re-encoding")
                 run_ffmpeg_job(job, ff, args, total_us=total, cwd=str(work))
-            elif built["kind"] == "audio":
-                args = build_audio_copy_args(source, temp, built["selected"],
-                                             built["actualStartUs"], built["actualEndUs"],
-                                             built["container"])
-                job.update(message="lossless audio copy")
-                run_ffmpeg_job(job, ff, args, total_us=total)
-            elif not [st for st in built["selected"] if st.get("type") == "video"]:
-                # Nothing but audio/subtitles can be stored: cut them in one pass so the
-                # mux never falls back to ffmpeg default stream selection (which would
-                # silently re-add the excluded video).
-                if not built["selected"]:
-                    raise RuntimeError("no stream can be copied into the chosen container")
-                args = build_audio_copy_args(source, temp, built["selected"],
-                                             built["actualStartUs"], built["actualEndUs"],
-                                             built["container"])
-                job.update(message="lossless copy")
-                run_ffmpeg_job(job, ff, args, total_us=total)
             else:
-                video_sel = [st for st in built["selected"] if st.get("type") == "video"]
-                other_sel = [st for st in built["selected"] if st.get("type") != "video"]
-                vtemp = temp.with_name(temp.stem + ".v" + temp.suffix)
-                atemp = temp.with_name(temp.stem + ".a" + temp.suffix) if other_sel else None
-                job.update(message="lossless video copy")
-                run_ffmpeg_job(job, ff, _video_cut_args(source, vtemp, video_sel,
-                                                       built["seekUs"], built["actualEndUs"]), total_us=total)
-                if atemp is not None:
-                    job.update(message="lossless audio copy")
-                    run_ffmpeg_job(job, ff, _av_cut_args(source, atemp, other_sel,
-                                                         built["actualStartUs"], built["actualEndUs"]), total_us=total)
-                job.update(message="muxing")
-                run_ffmpeg_job(job, ff, _mux_args(vtemp, atemp, temp, built["container"],
-                                                  built["actualStartUs"]), total_us=total)
-                for leftover in (vtemp, atemp):
-                    if leftover is not None:
-                        try:
-                            leftover.unlink()
-                        except OSError:
-                            pass
-                vtemp = None
-                atemp = None
+                # ---- lossless routes, wired for the audio timing plan (plan 3) ----
+                ap = built.get("audioPlan") or {}
+                am = ap.get("mode") or "original"
+                offs = ap.get("offsets") or {}
+                added_info = ap.get("added")
+                shifted = bool(offs.get("video") or offs.get("audio") or offs.get("added"))
+                if built["kind"] == "audio" or not [st for st in built["selected"] if st.get("type") == "video"]:
+                    # Nothing but audio/subtitles can be stored: cut them in one pass so the
+                    # mux never falls back to ffmpeg default stream selection (which would
+                    # silently re-add the excluded video).
+                    if not built["selected"]:
+                        raise RuntimeError("no stream can be copied into the chosen container")
+                    if am == "mute":
+                        raise RuntimeError("音声のみの出力では消音にできません（出力が空になります）")
+                    if am == "bothMix" and added_info is not None:
+                        orig_stream = next((st for st in built["selected"] if st.get("type") == "audio"), None)
+                        job.update(message="mixing audio")
+                        run_ffmpeg_job(job, ff, build_mix_args(
+                            cfg, source, added_info["source"], temp, built["container"],
+                            built["actualStartUs"], total,
+                            orig_stream, added_info["streams"][0], added_info["startUs"],
+                            ap.get("origShiftUs", 0), ap.get("addedShiftUs", 0), options, final=True), total_us=total)
+                    elif shifted or (added_info is not None and am in ("added", "bothTracks")):
+                        orig_cut = None
+                        add_cut = None
+                        if am in ("original", "bothTracks"):
+                            orig_cut = temp.with_name(temp.stem + ".a0" + temp.suffix)
+                            job.update(message="lossless audio copy")
+                            run_ffmpeg_job(job, ff, build_audio_copy_args(source, orig_cut, built["selected"],
+                                                                         built["actualStartUs"], built["actualEndUs"],
+                                                                         ""), total_us=total)
+                        if added_info is not None:
+                            add_cut = temp.with_name(temp.stem + ".a1" + temp.suffix)
+                            job.update(message="re-encoding the added audio" if added_info["reencode"]
+                                       else "added audio copy")
+                            run_ffmpeg_job(job, ff, _added_cut_args(
+                                added_info["source"], add_cut, added_info["streams"],
+                                added_info["startUs"], added_info["startUs"] + added_info["headSkipUs"] + total,
+                                head_skip_us=added_info["headSkipUs"],
+                                audio_codec=added_info["codec"] if added_info["reencode"] else None,
+                                audio_bitrate=(_audio_bitrate(options, added_info["streams"][0])
+                                               if added_info["reencode"] else None)), total_us=total)
+                        mux_offs = dict(offs)
+                        if orig_cut is None:
+                            # a single added input rides in the av slot with its own offset
+                            mux_offs = {"video": 0, "audio": offs.get("added", 0), "added": 0}
+                        job.update(message="muxing audio")
+                        run_ffmpeg_job(job, ff, _shifted_mux_args(None, orig_cut, add_cut, temp, built["container"],
+                                                                 built["actualStartUs"], mux_offs, length_us=total),
+                                       total_us=total)
+                        for leftover in (orig_cut, add_cut):
+                            if leftover is not None:
+                                try:
+                                    leftover.unlink()
+                                except OSError:
+                                    pass
+                    else:
+                        args = build_audio_copy_args(source, temp, built["selected"],
+                                                     built["actualStartUs"], built["actualEndUs"],
+                                                     built["container"])
+                        job.update(message="lossless audio copy")
+                        run_ffmpeg_job(job, ff, args, total_us=total)
+                else:
+                    video_sel = [st for st in built["selected"] if st.get("type") == "video"]
+                    other_sel = [st for st in built["selected"] if st.get("type") != "video"]
+                    sub_sel = [st for st in other_sel if st.get("type") == "subtitle"]
+                    audio_sel = [st for st in other_sel if st.get("type") == "audio"]
+                    # On the shifted routes the subtitles ride with the video input so they
+                    # keep the video's timestamps (plan 0.2: the video/subtitle input carries
+                    # the video term).  The legacy unshifted route keeps the old grouping.
+                    cut_video = video_sel + sub_sel if (shifted and am != "mute") else video_sel
+                    vtemp = temp.with_name(temp.stem + ".v" + temp.suffix)
+                    atemp = None
+                    add_temp = None
+                    mix_temp = None
+                    job.update(message="lossless video copy")
+                    run_ffmpeg_job(job, ff, _video_cut_args(source, vtemp, cut_video,
+                                                           built["seekUs"], built["actualEndUs"]), total_us=total)
+                    if am == "mute":
+                        job.update(message="muxing")
+                        run_ffmpeg_job(job, ff, _mux_args(vtemp, None, temp, built["container"],
+                                                          built["actualStartUs"]), total_us=total)
+                    elif am == "bothMix":
+                        mix_temp = temp.with_name(temp.stem + ".mix.mka")
+                        job.update(message="mixing audio")
+                        run_ffmpeg_job(job, ff, build_mix_args(
+                            cfg, source, (added_info or {}).get("source"), mix_temp, built["container"],
+                            built["actualStartUs"], total,
+                            audio_sel[0] if audio_sel else None,
+                            (added_info or {}).get("streams", [None])[0],
+                            (added_info or {}).get("startUs", 0),
+                            ap.get("origShiftUs", 0), ap.get("addedShiftUs", 0), options), total_us=total)
+                        job.update(message="muxing")
+                        run_ffmpeg_job(job, ff, _mux_args(vtemp, mix_temp, temp, built["container"],
+                                                          built["actualStartUs"]), total_us=total)
+                    else:
+                        if am in ("original", "bothTracks") and audio_sel:
+                            atemp = temp.with_name(temp.stem + ".a" + temp.suffix)
+                            job.update(message="lossless audio copy")
+                            run_ffmpeg_job(job, ff, _av_cut_args(source, atemp, audio_sel,
+                                                                 built["actualStartUs"], built["actualEndUs"]), total_us=total)
+                        if added_info is not None:
+                            add_temp = temp.with_name(temp.stem + ".x" + temp.suffix)
+                            job.update(message="re-encoding the added audio" if added_info["reencode"]
+                                       else "added audio copy")
+                            run_ffmpeg_job(job, ff, _added_cut_args(
+                                added_info["source"], add_temp, added_info["streams"],
+                                added_info["startUs"], added_info["startUs"] + added_info["headSkipUs"] + total,
+                                head_skip_us=added_info["headSkipUs"],
+                                audio_codec=added_info["codec"] if added_info["reencode"] else None,
+                                audio_bitrate=(_audio_bitrate(options, added_info["streams"][0])
+                                               if added_info["reencode"] else None)), total_us=total)
+                        job.update(message="muxing")
+                        if shifted or add_temp is not None:
+                            run_ffmpeg_job(job, ff, _shifted_mux_args(vtemp, atemp, add_temp, temp,
+                                                                     built["container"], built["actualStartUs"],
+                                                                     offs, length_us=total), total_us=total)
+                        else:
+                            run_ffmpeg_job(job, ff, _mux_args(vtemp, atemp, temp, built["container"],
+                                                              built["actualStartUs"]), total_us=total)
+                    for leftover in (vtemp, atemp, add_temp, mix_temp):
+                        if leftover is not None:
+                            try:
+                                leftover.unlink()
+                            except OSError:
+                                pass
+                    vtemp = None
+                    atemp = None
+                    add_temp = None
+                    mix_temp = None
             if job.is_cancelled():
                 raise RuntimeError("cancelled")
             data = ffmpeg_tools.summarize(ffmpeg_tools.probe(fp, str(temp)))
@@ -707,7 +1094,12 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
         except Exception:
             raise
         finally:
-            for leftover in (temp, locals().get("vtemp"), locals().get("atemp")):
+            try:
+                jobs.release_output(str(out), alias=options.get("outputPath"))
+            except Exception:
+                pass
+            for leftover in (temp, locals().get("vtemp"), locals().get("atemp"),
+                             locals().get("add_temp"), locals().get("mix_temp")):
                 try:
                     if leftover is not None and leftover.exists():
                         leftover.unlink()

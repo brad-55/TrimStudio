@@ -378,3 +378,20 @@ def direct_playable(info):
 def spawn(args, **kwargs):
     return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             encoding="utf-8", errors="replace", **_no_window_kwargs(), **kwargs)
+
+def read_pcm16_mono(ffmpeg, path, start_us, duration_us, rate=16000):
+    """Decode a slice of audio to mono s16le PCM at the given rate.
+
+    Returns bytes, or None when the file has no decodable audio. Used by the automatic
+    audio sync analysis, which needs a small, comparable signal from both tracks.
+    """
+    args = [ffmpeg, "-v", "error", "-nostdin",
+            "-ss", format_seconds(max(0, int(start_us))), "-t", format_seconds(max(0, int(duration_us))),
+            "-i", str(path), "-vn", "-ac", "1", "-ar", str(int(rate)), "-f", "s16le", "-"]
+    try:
+        proc = subprocess.run(args, capture_output=True, timeout=600)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout or None

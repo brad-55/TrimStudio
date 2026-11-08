@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import cleanup, exports, ffmpeg_tools, fsops, media, security, sources
+from . import audio_sync, cleanup, exports, ffmpeg_tools, fsops, media, security, sources
 from .config import ROOT, Config
 from .db import Database
 from .jobs import JobManager
@@ -119,7 +119,13 @@ def create_app():
         elif strong and path.startswith("/api/") and path not in ("/api/auth", "/api/health", "/api/config"):
             if request.cookies.get("trim_session", "") != app.state.token:
                 return err("token_required", "session token required", 403)
-        return await call_next(request)
+        response = await call_next(request)
+        ctype = response.headers.get("content-type", "")
+        if ctype.startswith("text/html"):
+            # Never let a phone keep an old page: the UI changes often during development.
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
     @app.exception_handler(LookupError)
     async def _lookup_handler(request: Request, exc: LookupError):
@@ -385,6 +391,32 @@ def create_app():
             return err("not_ready", "sprite not ready", 404)
         return FileResponse(str(path), media_type="image/jpeg")
 
+    @app.post("/api/audio/sync")
+    async def audio_sync_analysis(request: Request):
+        body = await json_object(request)
+        if body is None:
+            return err("invalid_request", "request body must be a JSON object", 400)
+        source = db.get_source(body.get("sourceId", ""))
+        if not source:
+            return err("not_found", "source not found", 404)
+        added = db.get_source(body.get("addedSourceId", ""))
+        if not added:
+            return err("not_found", "the added source was not found", 404)
+
+        def number(key, default, low, high):
+            try:
+                value = int(body.get(key, default))
+            except (TypeError, ValueError):
+                value = default
+            return max(low, min(high, value))
+
+        job = audio_sync.start_analysis(cfg, db, jobs, source, added,
+                                        number("startUs", 0, 0, 1 << 62),
+                                        number("windowMs", 60000, 2000, 600000) * 1000,
+                                        number("rangeMs", 5000, 100, 30000) * 1000,
+                                        number("windows", 3, 1, 5))
+        return {"jobId": job.id}
+
     @app.post("/api/sources/{source_id}/sprite")
     def sprite_build(source_id: str):
         source = db.get_source(source_id)
@@ -438,6 +470,43 @@ def create_app():
         if body.get("mode"):
             options["mode"] = body.get("mode")
         options.setdefault("mode", "lossless")
+        # The audio timing switch is authoritative: when it is off the values are
+        # ignored for the export as well, whatever they happen to be.
+        timing = options.get("audioTiming")
+        if timing is not None:
+            on = str(timing).strip().lower() in ("true", "1", "on", "yes")
+            options["audioTiming"] = on
+            if not on:
+                # An explicit mute is not a timing choice, so it survives.
+                if options.get("audioMode") != "mute":
+                    options["audioMode"] = "original"
+                for k in ("audioShiftMs", "addedShiftMs", "addedStartMs", "addedSourceId", "addedReencode"):
+                    options.pop(k, None)
+        audio_mode = options.get("audioMode") or "original"
+        if audio_mode not in exports.AUDIO_MODES:
+            return err("invalid_request", "audioMode must be one of " + ", ".join(exports.AUDIO_MODES), 400)
+        options["audioMode"] = audio_mode
+        # No practical shift limit: the user may delay/advance the audio as far as the
+        # media allows. Anything an int can hold is accepted.
+        for key in ("audioShiftMs", "addedShiftMs", "addedStartMs"):
+            value = options.get(key)
+            if value in (None, ""):
+                options.pop(key, None)
+                continue
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                return err("invalid_shift", key + " must be an integer in milliseconds", 400)
+            options[key] = number
+        added_source = None
+        if audio_mode in ("added", "bothTracks", "bothMix"):
+            added_source = db.get_source(options.get("addedSourceId") or "")
+            if not added_source:
+                return err("invalid_request", "addedSourceId is required for this audio mode", 404)
+            added_audio = exports.added_streams(json.loads(added_source.get("streams_json") or "[]"))
+            if not added_audio:
+                return err("invalid_audio", "the added file has no audio stream", 400)
+            options["addedSourceId"] = added_source["id"]
         if options.get("outputPath"):
             try:
                 security.check_path(options["outputPath"], cfg)
@@ -455,12 +524,36 @@ def create_app():
                 source, json.loads(source.get("streams_json") or "[]"), options.get("container"))
         except ValueError as exc:
             return err("invalid_container", str(exc), 400)
+        source_is_video = bool(exports.video_streams(json.loads(source.get("streams_json") or "[]")))
+        if options.get("audioMode") == "bothTracks" and container == "flv":
+            return err("invalid_container", "このコンテナは音声2トラックを保持できません（mp4/mkv を選択してください）", 400)
+        if options.get("audioMode") == "mute" and not source_is_video:
+            return err("invalid_request", "音声のみのソースでは消音にできません（出力が空になります）", 400)
+        if (not source_is_video and options.get("audioMode", "original") == "original"
+                and int(options.get("audioShiftMs") or 0) < 0
+                and container in exports.NO_ELST_CONTAINERS):
+            return err("invalid_container",
+                       "このコンテナは音声の前倒し（負のずらし）を保持できません。mp4/mkv を選ぶか 0 以上を指定してください", 400)
+        if added_source is not None and not options.get("addedReencode"):
+            added_audio = exports.added_streams(json.loads(added_source.get("streams_json") or "[]"))
+            if added_audio and not ffmpeg_tools.copy_compatibility(added_audio[0], container):
+                return err("invalid_container",
+                           "追加した音声 (" + str(added_audio[0].get("codec")) + ") は " + str(container) +
+                           " にそのまま入れられません。音声のみ再エンコードするか、別のコンテナを選んでください", 400)
         if options.get("mode") == "reencode" and options.get("audioReencode"):
             audio_stream = next((st for st in selected_streams if st.get("type") == "audio"), None)
             codec = exports.REENCODE_AUDIO_CODECS.get(container, "aac")
             if codec in ("wmav2", "libmp3lame", "mp2") and audio_stream and int(audio_stream.get("channels") or 2) > 2:
                 return err("invalid_container",
                            "このコンテナの音声再エンコードは2チャンネルまでです", 400)
+        explicit_out = options.get("outputPath")
+        if explicit_out:
+            try:
+                if jobs.is_output_reserved(explicit_out):
+                    return err("output_in_use",
+                               "同じ出力先を使用中の処理があります。完了を待つか、別のファイル名を指定してください", 409)
+            except Exception:
+                pass
         try:
             job = exports.start_export(cfg, db, jobs, source, start_us, end_us, options)
         except ValueError as exc:

@@ -169,6 +169,7 @@ class JobManager:
         self.db = db
         self.jobs = {}
         self.lock = threading.RLock()
+        self.reserved = {}
         self.semaphore = threading.Semaphore(max(1, int(concurrency)))
         self.source_locks = {}
         self.lock_guard = threading.Lock()
@@ -183,6 +184,44 @@ class JobManager:
                 lock = threading.Lock()
                 self.source_locks[key] = lock
             return lock
+
+    @staticmethod
+    def _out_key(path):
+        try:
+            return os.path.normcase(os.path.abspath(str(path)))
+        except Exception:
+            return None
+
+    def reserve_output(self, path, job_id, alias=None):
+        """Reserve an output path (and the raw user-supplied alias) for a job.
+
+        Two exports that pick the same name while the other one is still running used
+        to share the same .part file and corrupt each other, so the reservation is
+        what keeps concurrent exports apart.
+        """
+        keys = [k for k in (self._out_key(path), self._out_key(alias)) if k]
+        if not keys:
+            return True
+        with self.lock:
+            for k in keys:
+                if k in self.reserved:
+                    return False
+            for k in keys:
+                self.reserved[k] = job_id
+        return True
+
+    def release_output(self, path, alias=None):
+        keys = [k for k in (self._out_key(path), self._out_key(alias)) if k]
+        with self.lock:
+            for k in keys:
+                self.reserved.pop(k, None)
+
+    def is_output_reserved(self, path):
+        k = self._out_key(path)
+        if not k:
+            return False
+        with self.lock:
+            return k in self.reserved
 
     def create(self, kind, source_id, runner):
         job_id = uuid.uuid4().hex

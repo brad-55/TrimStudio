@@ -103,3 +103,33 @@
 - .wmv など ASF の映像は互換表で ASF 出力の対象外としているため、常に MKV として書き出します（映像・音声はパケットコピー）。
 - 出力コンテナを明示指定した場合、格納できない組み合わせは自動フォールバックせず 400 エラーになります。
 - モバイル実機での最終確認は未実施（LAN URL は起動時に表示）。
+
+## 音声タイミングの書き出し配線（第52〜54ラウンド）
+
+計画 docs/PLAN_AUDIO_EXPORT.md（v0.16）に沿って、音声タイミング調整（元音声のずらし／追加トラック／同時2トラック／ミックス／消音）を**書き出しへ配線**した。
+
+- `audio_offsets()` をモード認識に拡張（added モードで映像を動かさない／音声のみは符号保持／added は映像項に追従）
+- `_shifted_mux_args()` を 2/3 入力対応に拡張（入力ごと itsoffset・明示 map・`-t` キャップ・チャプター制御）
+- `_audio_plan()` 新設: options → 経路分岐＋無視規則（0.8b）＋警告文
+- `build_mix_args()` 新設: bothMix はフィルタ1パス（adelay / atrim+asetpts → amix normalize=0 duration=longest）、長さは encode 側 `-t` で確定
+- `start_export()` の無変換経路を計画の分岐表どおりに配線。audioTiming=false は既存経路をそのまま通す（ビット同一）
+- API: 音声のみ×消音 400、elst 非対応コンテナ×負のずらし 400、bothTracks×flv 400
+
+### 実装中に E2E が摘出した実バグ（すべて修正）
+1. `audioShiftMs` 等の **ms→µs 変換漏れ**（1000倍の誤り）
+2. **mux の `-map` を全 `-i` の後に**置く（間に入ると次入力のオプションと解釈され開始失敗）
+3. カット済みテンプは **0 起点にリセットされる**ため、mux の itsoffset は絶対配置（base=0）が正
+4. Δ=0 の added ルートで `_mux_args` が追加音声を落とす
+5. bothMix の `-t` が make_zero と競合 → encode 側で確定に変更
+
+### 検証（tests/e2e_audio_export.py、32チェック）
+±2000ms は音声パケットの**ビット一致**（ADTS抽出のバイト一致）＋elst＋長さ＝区間長／音声のみ ±1500ms／added（addedStartMs からのパケット一致）／bothTracks（2トラック両方ビット一致・head_skip）／bothMix（長さ＝区間長・警告）／mute（音声なし）／audioTiming=false（素の無変換とビット一致）／400・404系。回帰: e2e_lossless / e2e_audio_api / e2e_containers / e2e_edge / e2e_abnormal / e2e_naming / test_unit / 静的ガード / タイムライン / スモーク すべて合格。
+
+### 併せて実施した信頼性検証（ユーザー確認事項）
+- 長時間処理中の新規受付: セマフォ方式で実行中2本＋3本目を即受理（queued）→自動実行まで実機確認
+- ブラウザを閉じても処理継続: 無接続で完走、再接続時に結果パス取得・ファイル存在を確認。サーバ再起動後は履歴が残り、実行中再起動は `interrupted by restart` として整合
+- **出力パス予約**: 同一明示パスの同時書き出しを 409 `output_in_use` で拒否（既定パスは自動連番）。単体テスト付き
+
+### 三者レビュー（Gemini 4 Argon / GLM 5.3 Flash / Qwen）
+計画: v0.5→v0.16 まで反復 → Argon 完全Go（5回連続）/ GLM 完全Go / Qwen 完全Go。
+成果物: Argon **完全Go**（重大な欠陥: 無し）/ GLM **完全Go** / Qwen 条件付きGo→確認後 **完全Go**。

@@ -132,8 +132,8 @@ def main():
     check(security.is_allowed_source("fd00::1", True), "v6 ula source still allowed")
     check(security.host_allowed("pc.tailnet.ts.net:8003", {"127.0.0.1"}, names, True, set(), set(), True),
           "ts.net host allowed from the tailnet")
-    check(not security.host_allowed("pc.tailnet.ts.net:8003", {"127.0.0.1"}, names, True, set(), set(), False),
-          "ts.net host rejected from a lan client")
+    check(security.host_allowed("pc.tailnet.ts.net:8003", {"127.0.0.1"}, names, True, set(), set(), False),
+          "ts.net host allowed from a lan client (ts.net cannot be attacker-registered)")
     check(not security.host_allowed("pc.tailnet.ts.net:8003", {"127.0.0.1"}, names, False),
           "ts.net host rejected when tailnet disabled")
     check(security.host_allowed("100.70.95.77:8003", set(), names, True, set(), {"100.70.95.77"}),
@@ -163,7 +163,111 @@ def main():
               "tailnet ips are tailnet addresses: " + str(sorted(tn_ips)))
     print("tailnet self:", sorted(tn_names), sorted(tn_ips))
 
+    from app.exports import audio_offsets, added_head_skip_us, clamp_added_start
+    off = audio_offsets("original", 0, 0, False)
+    check(off["audio"] == 0 and off["video"] == 0 and off["audioStreams"] == 1, "no shift is a no-op: " + str(off))
+    off = audio_offsets("original", 120000, 0, False)
+    check(off["audio"] == 120000 and off["video"] == 0, "+shift moves the audio later")
+    off = audio_offsets("original", -120000, 0, False)
+    check(off["video"] == 120000 and off["audio"] == 0, "-shift moves the video later instead")
+    off = audio_offsets("bothTracks", 0, 90000, True)
+    check(off["added"] == 90000 and off["audioStreams"] == 2, "added shift and 2 tracks: " + str(off))
+    off = audio_offsets("bothTracks", 0, -90000, True)
+    check(off["added"] == 0 and added_head_skip_us(-90000) == 90000, "negative added shift skips the head")
+    off = audio_offsets("mute", 500000, 500000, True)
+    check(off["audioStreams"] == 0 and off["audio"] == 0 and off["video"] == 0, "mute drops every audio stream")
+    check(audio_offsets("added", 0, 0, True)["audioStreams"] == 1, "added-only keeps one stream")
+    check(clamp_added_start(40000000, 0, 30000000) == 30000000, "added start is clamped to the file length")
+    check(clamp_added_start(1000000, -2000000, 30000000) == 1000000, "head skip keeps the start valid")
+    from app.exports import _shifted_mux_args, _added_cut_args
+    zero = {"video": 0, "audio": 0, "added": 0}
+    base_args = _shifted_mux_args(r"C:\t\v.mp4", r"C:\t\a.mp4", None, r"C:\t\o.mp4", "mp4", 2000000, zero)
+    check("-avoid_negative_ts" in base_args and base_args[base_args.index("-avoid_negative_ts") + 1] == "make_zero",
+          "unshifted mux keeps make_zero (existing behaviour)")
+    check("-map_chapters" in base_args and "-use_editlist" not in base_args, "unshifted mux keeps chapters")
+    plus = _shifted_mux_args(r"C:\t\v.mp4", r"C:\t\a.mp4", None, r"C:\t\o.mp4", "mp4", 0,
+                             {"video": 0, "audio": 120000, "added": 0})
+    check(plus.index("-itsoffset") < plus.index("-map"), "video input carries the first offset")
+    audio_i = plus.index("-itsoffset", plus.index("-itsoffset") + 1)
+    check(plus[audio_i + 1] == "0.120000000", "audio itsoffset carries the shift: " + plus[audio_i + 1])
+    check(plus[plus.index("-avoid_negative_ts") + 1] == "disabled", "shifted mux disables make_zero")
+    check("-use_editlist" in plus and plus[plus.index("-use_editlist") + 1] == "1", "MP4 gets an edit list")
+    check("-map_chapters" in plus and plus[plus.index("-map_chapters") + 1] == "-1",
+          "chapters are dropped when the original shift moves the timeline")
+    addonly = _shifted_mux_args(r"C:\\t\\v.mp4", r"C:\\t\\a.mp4", r"C:\\t\\x.mka", r"C:\\t\\o.mp4", "mp4", 0,
+                                {"video": 0, "audio": 0, "added": 120000}, length_us=5000000)
+    check(addonly[addonly.index("-map_chapters") + 1] == "0", "an added-only shift keeps chapters")
+    check(addonly[addonly.index("-t") + 1] == "5.120000000",
+          "the -t cap reaches past the delayed stream: " + addonly[addonly.index("-t") + 1])
+    check(addonly.count("-i") == 3, "the added track is a third input")
+    solo = _shifted_mux_args(None, r"C:\\t\\a.m4a", None, r"C:\\t\\o.m4a", "mp4", 0,
+                             {"video": 0, "audio": -2500000, "added": 0})
+    check(solo.count("-i") == 1, "an audio-only export has a single input")
+    check(solo[solo.index("-itsoffset") + 1] == "-2.500000000", "the audio-only route keeps the signed shift")
+    check("-map_chapters" in solo and solo[solo.index("-map_chapters") + 1] == "-1",
+          "an audio-only shift drops chapters too")
+    minus = _shifted_mux_args(r"C:\t\v.mp4", r"C:\t\a.mp4", None, r"C:\t\o.mp4", "mp4", 0,
+                              {"video": 120000, "audio": 0, "added": 0})
+    check(minus[minus.index("-itsoffset") + 1] == "0.120000000", "negative shift moves the video instead")
+    track = _shifted_mux_args(r"C:\t\v.mp4", r"C:\t\a.mp4", r"C:\t\x.m4a", r"C:\t\o.mp4", "mp4", 0,
+                              {"video": 0, "audio": 0, "added": 60000})
+    check(track.count("-i") == 3 and "-map" in track and "2" in track, "added input is mapped")
+    add_cut = _added_cut_args({"path": r"C:\t\x.m4a"}, r"C:\t\a.acut.m4a",
+                              [{"index": 0, "type": "audio"}], 2000000, 7000000, 500000)
+    check(add_cut[add_cut.index("-ss") + 1] == "2.500000000", "added cut skips the shifted head")
+    check(add_cut[add_cut.index("-t") + 1] == "4.500000000", "added cut keeps the export length")
+    from app.audio_sync import SAMPLE_RATE, estimate_offset, estimate_consistent
+    import numpy as _np
+    rng = _np.random.default_rng(7)
+    base = rng.standard_normal(SAMPLE_RATE * 6).astype("float32")
+    delay = int(0.137 * SAMPLE_RATE)
+    # tgt is the base signal advanced by 137ms: it must be delayed by +137ms to line up.
+    tgt = _np.concatenate([base[delay:], _np.zeros(delay, dtype="float32")])
+    lag, ratio, peak = estimate_offset(base, tgt, SAMPLE_RATE, 5.0)
+    got_ms = lag / float(SAMPLE_RATE) * 1000.0
+    check(abs(got_ms - 137.0) <= 2.0, "auto sync finds a 137ms advance: " + ("%.1f" % got_ms))
+    check(ratio >= 1.5 and peak >= 0.15, "auto sync reports confidence: ratio=%.2f peak=%.2f" % (ratio, peak))
+    lag0, _r0, _p0 = estimate_offset(base, base.copy(), SAMPLE_RATE, 5.0)
+    check(abs(lag0) <= 2, "identical tracks give zero offset: " + str(lag0))
+    silent = _np.zeros(SAMPLE_RATE * 3, dtype="float32")
+    _l, r2, p2v = estimate_offset(base, silent, SAMPLE_RATE, 5.0)
+    check(r2 == 0.0 and p2v == 0.0, "silence is not trusted")
+    ok = estimate_consistent([(100, 2.0, 0.4), (110, 2.2, 0.5), (95, 1.9, 0.45)], SAMPLE_RATE)
+    check(ok[3] >= 0.4 and ok[2] is True, "consistent windows agree: " + str(ok))
+    bad = estimate_consistent([(100, 2.0, 0.4), (4000, 2.2, 0.5), (8000, 1.9, 0.45)], SAMPLE_RATE)
+    check(bad[2] is False, "drifting windows are reported as inconsistent")
+    low = estimate_consistent([(100, 1.0, 0.05)], SAMPLE_RATE)
+    check(low[0] == 0 and low[3] == 0.0, "low confidence windows are rejected")
     check(sources.security_path_sanitize("CON.mp3").startswith("_"), "reserved upload name")
+
+    # --- added-track offset must also carry the video term (plan-review finding) ---
+    off = audio_offsets("bothTracks", -5_000_000, 2_000_000, True)
+    check(off["video"] == 5_000_000 and off["audio"] == 0, "a negative original shift moves the video instead")
+    check(off["added"] == 7_000_000, "added follows the video term: " + str(off))
+    off2 = audio_offsets("added", -5_000_000, 2_000_000, True)
+    check(off2["video"] == 0 and off2["added"] == 2_000_000,
+          "case 2 (no original audio) must not add the video term: " + str(off2))
+    off3 = audio_offsets("bothTracks", 1_000_000, -2_000_000, True)
+    check(off3["audio"] == 1_000_000 and off3["added"] == 0,
+          "negative added shift is absorbed by head_skip, not by a negative offset: " + str(off3))
+
+    # --- output path reservations keep concurrent exports apart ---
+    from app import jobs as _jobs_mod
+
+    class _DB:
+        def upsert_job(self, row):
+            pass
+
+    jm = _jobs_mod.JobManager(_DB(), concurrency=1)
+    check(jm.reserve_output(r"L:\x\a.mp4", "j1") is True, "first reservation wins")
+    check(jm.reserve_output(r"L:\x\a.mp4", "j2") is False, "a second job cannot take the same path")
+    check(jm.is_output_reserved(r"L:\X\A.MP4") is True, "reservation lookup is case-insensitive")
+    jm.release_output(r"L:\x\a.mp4")
+    check(jm.is_output_reserved(r"L:\x\a.mp4") is False, "released paths become free again")
+    check(jm.reserve_output(r"L:\x\b.mp4", "j3", alias=r"L:\y\c.mp4") is True, "alias reserves the raw path")
+    check(jm.is_output_reserved(r"L:\y\c.mp4") is True, "the alias is reserved as well")
+    jm.release_output(r"L:\x\b.mp4", alias=r"L:\y\c.mp4")
+    check(jm.is_output_reserved(r"L:\y\c.mp4") is False, "alias is released too")
 
     print("unit checks: OK")
     return 0

@@ -114,10 +114,10 @@ def host_allowed(host_header, cfg_ips, self_names=None, allow_tailnet=True,
         # this server and bypass same-origin checks.
         if tailnet_names and lower in tailnet_names:
             return True
-        if (allow_tailnet and client_is_tailnet and len(lower) > len(".ts.net")
-                and lower.endswith(".ts.net")):
-            # Tailscale MagicDNS name: only for requests that arrived over the tailnet
-            # (ts.net is controlled by Tailscale, so it cannot be attacker-registered).
+        if allow_tailnet and len(lower) > len(".ts.net") and lower.endswith(".ts.net"):
+            # Tailscale MagicDNS name. ts.net is controlled by Tailscale, so a rebinding
+            # attacker cannot register a name there; the source address check above still
+            # limits requests to the LAN/tailnet.
             return True
         return bool(self_names) and lower in self_names
     if ip.is_loopback or str(ip) in cfg_ips:
