@@ -275,6 +275,7 @@ def main():
 
     from app import exports  # noqa: E402
 
+
     # --- the added re-encode checkbox really re-encodes the added track (plan 0.5) ---
     import json as _json  # noqa: E402
     from app.exports import _audio_plan  # noqa: E402
@@ -295,6 +296,15 @@ def main():
     _row_aac = {"id": "add", "streams_json": _json.dumps(_aac), "duration_us": 9_000_000}
     _row_flac = {"id": "add", "streams_json": _json.dumps(_flac), "duration_us": 9_000_000}
     _opt = {"audioMode": "added", "addedSourceId": "add"}
+
+    # an empty plan must NOT be returned when only the content skip carries the shift
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": -1}, 0, 4_000_000, _w)
+    check(_p is not None and _p["offsets"]["audioSkipUs"] == 1000,
+          "a plan survives when only audioSkipUs is non-zero: " + str(_p))
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {}, 0, 4_000_000, _w)
+    check(_p is None, "a plain cut still uses the legacy route (no plan)")
 
     # the API speaks milliseconds and the internal time base is microseconds: the
     # conversion is a pure function, so it belongs in the unit layer (not only in E2E)

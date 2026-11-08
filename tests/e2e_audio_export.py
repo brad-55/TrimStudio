@@ -205,6 +205,9 @@ def main():
     st, j = export(vid["id"], 2_000_000, 6_000_000, {"audioShiftMs": 2000})
     out1 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out1, "export +2000ms succeeds: " + str(j.get("error"))[:400])
+    _au1 = (j.get("result") or {}).get("audio") or {}
+    check(_au1.get("appliedMs", {}).get("audio") == 2000.0 and not _au1.get("ignored"),
+          "the job result reports the applied shift for +2000ms: " + str(_au1)[:200])
     if out1:
         # Independent oracle: the source's own packet grid is measured straight from the
         # file (no seek), never by re-running the pipeline's cut.  Boundary spec (see
@@ -289,6 +292,17 @@ def main():
         got = None if (fl is None or bp is None) else round(bp - fl, 4)
         check(got is not None and abs(got - want) < 0.06,
               "the sound really moves by %+dms at the content level: measured %s" % (shift, got))
+        # positive shifts are expressed as the audio's container start; negative ones ride
+        # in the content, so their start must stay at zero
+        _a = [s for s in streams_of(mout) if s.get("codec_type") == "audio"]
+        _v = [s for s in streams_of(mout) if s.get("codec_type") == "video"]
+        _want_start = max(0.0, shift) / 1000.0
+        check(_a and abs(float(_a[0].get("start_time") or 0) - _want_start) < 0.12,
+              "a %+dms shift places the audio start at %.3fs: %s"
+              % (shift, _want_start, (_a[0].get("start_time") if _a else None)))
+        check(_v and abs(float(_v[0].get("start_time") or 0)) < 0.12,
+              "a %+dms shift never moves the video (the reference track): %s"
+              % (shift, (_v[0].get("start_time") if _v else None)))
 
     # --- 4: added mode with addedStartMs (plan E2E 4) ---
     st, j = export(vid["id"], 2_000_000, 6_000_000,
@@ -300,6 +314,9 @@ def main():
         check(len(ast) == 1, "added mode has exactly one audio track")
         check(packet_md5(out4, "0:a") == packet_md5(apath, "0:a", 1.0, 4.0),
               "added audio comes from addedStartMs=1000")
+        check(abs(float(ast[0].get("start_time") or 0)) < 0.1,
+              "the added-only track starts at zero (the head skip is content, not an offset): "
+              + str(ast[0].get("start_time")))
 
     # --- 12: the re-encode checkbox really re-encodes only the added track ---
     st, j = export(vid["id"], 2_000_000, 6_000_000,
@@ -332,6 +349,14 @@ def main():
                    {"audioMode": "added", "addedSourceId": flac["id"], "audioTiming": True,
                     "addedReencode": True})
     check(j.get("status") == "done", "the checkbox lets an incompatible codec through: " + str(j.get("error"))[:300])
+
+    # --- added mode reports that the original shift does not apply (plan 0.8b) ---
+    st, j = export(vid["id"], 2_000_000, 6_000_000,
+                   {"audioMode": "added", "addedSourceId": aud["id"], "addedStartMs": 0,
+                    "audioShiftMs": 500, "audioTiming": True})
+    _w = ((j.get("result") or {}).get("warnings") or [])
+    check(j.get("status") == "done" and any("追加のみ" in str(x) for x in _w),
+          "added mode reports the ignored original shift: " + str(_w)[:160])
 
     # --- 5/6: bothTracks with independent shifts (plan E2E 5/6) ---
     st, j = export(vid["id"], 2_000_000, 6_000_000,
