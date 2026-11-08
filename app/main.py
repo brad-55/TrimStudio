@@ -503,6 +503,24 @@ def create_app():
             on = str(timing).strip().lower() in ("true", "1", "on", "yes")
             options["audioTiming"] = on
             if not on:
+                # Record what the switch dropped so the job result can say so: the user
+                # may have typed a shift and forgotten the switch, and then the export
+                # looks "unchanged" for no visible reason.
+                dropped = []
+                for k in ("audioShiftMs", "addedShiftMs", "addedStartMs"):
+                    try:
+                        if int(options.get(k) or 0) != 0:
+                            dropped.append(k)
+                    except (TypeError, ValueError):
+                        pass
+                if options.get("addedSourceId"):
+                    dropped.append("addedSourceId")
+                if options.get("addedReencode"):
+                    dropped.append("addedReencode")
+                if options.get("audioMode") not in (None, "original", "mute"):
+                    dropped.append("audioMode=" + str(options.get("audioMode")))
+                if dropped:
+                    options["audioTimingIgnored"] = dropped
                 # An explicit mute is not a timing choice, so it survives.
                 if options.get("audioMode") != "mute":
                     options["audioMode"] = "original"

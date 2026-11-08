@@ -70,7 +70,7 @@ main{display:grid;gap:14px;padding:14px;max-width:1320px;margin:0 auto}
 .src-actions{display:flex;gap:8px;flex:0 0 auto;justify-self:end;flex-wrap:wrap}
 .src-ico{width:38px;height:38px;border-radius:9px;background:#0e121a;border:1px solid var(--line);display:grid;place-items:center;color:var(--acc)}
 .src-meta{min-width:0;flex:1}
-.src-name{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.src-name{font-weight:700;font-size:15px;white-space:normal;overflow-wrap:anywhere;word-break:break-word;max-width:100%;line-height:1.35}
 .srcbar .btn{flex:0 0 auto;white-space:nowrap;min-width:0}
 @media(max-width:560px){.srcbar{grid-template-columns:38px minmax(0,1fr)}.src-actions{grid-column:2;justify-self:start}}
 .fcell img.bad{opacity:.3}
@@ -379,6 +379,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         <div class='field' style='margin-top:12px'>
           <label>音声タイミング調整</label>
           <label class='as-sw'><input type='checkbox' id='auditionToggle' autocomplete='off' aria-controls='audioTimingBox' aria-expanded='false'><span class='as-track'><span class='as-thumb'></span></span><span class='as-state' id='auditionState'>OFF</span></label>
+          <div class='hint' id='audioTimingState' style='margin-top:2px'></div>
         </div>
 
         <div id='audioTimingBox' hidden>
@@ -980,7 +981,12 @@ function updatePlayNotice(){
   let msg="";
   if(state.source&&state.kind!=="audio"&&!state.directPlayable){
     if(state.variant==="proxy"&&!state.proxyReady)msg="プロキシを準備しています。しばらくお待ちください…";
-    else if(!state.proxyReady)msg="この形式（H.265 / 10bit など）はブラウザで直接再生できません。「プロキシを生成」を押すと再生できます。"+exportHowText();
+    else if(!state.proxyReady){
+      const vst=((state.source.streams||[]).filter(x=>x.type==="video")[0])||{};
+      const pf=String(vst.pixFmt||vst.pix_fmt||"");
+      const why=/10/.test(pf)?"10bit（HDR）":(vst.codec?"コーデック "+String(vst.codec).toUpperCase():"この形式");
+      msg="この動画は"+why+"のため、ブラウザによっては直接再生できません（再生できる場合もあります）。「プロキシを生成」を押すと、どの環境でも再生できる形式に変換します。"+exportHowText();
+    }
   }
   box.textContent=msg;box.hidden=!msg;
 }
@@ -1292,7 +1298,16 @@ async function validatePath(){
 /* ---------- events ---------- */
 const vid=$("video");
 vid.addEventListener("timeupdate",()=>{state.curUs=Math.round(vid.currentTime*1e6);$("curTime").textContent=fmt(state.curUs);updateTimeline();});
-vid.addEventListener("loadedmetadata",()=>{if(!state.durationUs&&vid.duration)state.durationUs=Math.round(vid.duration*1e6);refreshFrames();ensureCrop();drawCrop();});
+vid.addEventListener("loadedmetadata",()=>{
+  /* The server's list is a conservative guess (it refuses every HEVC). When the browser
+     actually decoded the file there is nothing to warn about, so trust the player. */
+  if(!state.directPlayable&&vid.videoWidth>0){
+    state.directPlayable=true;
+    if($("proxyBox"))$("proxyBox").style.display=(state.kind==="audio")?"none":"block";
+    if($("variantBadge"))$("variantBadge").textContent="variant: original";
+    updatePlayNotice();
+  }
+  if(!state.durationUs&&vid.duration)state.durationUs=Math.round(vid.duration*1e6);refreshFrames();ensureCrop();drawCrop();});
 vid.addEventListener("play",()=>{$("playBtn").querySelector(".g").textContent="⏸";$("playBtn").lastElementChild.textContent="一時停止";});
 vid.addEventListener("error",()=>{
   if(!state.source||state.kind==="audio")return;
@@ -1550,7 +1565,7 @@ function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?
 function addedModeActive(m){m=m||audioModeValue();return m==='added'||m==='bothTracks'||m==='bothMix';}
 function origModeActive(m){m=m||audioModeValue();return m==='original'||m==='bothTracks'||m==='bothMix';}
 function renderAddedInfo(){const el=$("addedInfo");if(!el)return;if(state.addedSource){const d=state.addedSource.durationUs;el.textContent=(state.addedSource.name||'追加音声')+(d!=null?' / '+fmt(d):'');}else{el.textContent='未選択';}}
-function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").disabled=!hasSrc;if($("abCompareChk"))$("abCompareChk").disabled=!hasSrc;if($("auditionToggle"))$("auditionToggle").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();}
+function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").disabled=!hasSrc;if($("abCompareChk"))$("abCompareChk").disabled=!hasSrc;if($("auditionToggle"))$("auditionToggle").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();/* Keep the state of the timing switch in plain sight: a value typed while the *//* switch is off is silently ignored by both the preview and the export. */const st=$("audioTimingState");if(st){const on=!!($("auditionToggle")&&$("auditionToggle").checked);const ov=clampMs($("origShiftInp")?$("origShiftInp").value:0),av=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);const hasAdded=!!state.addedSource;const anyVal=(ov!==0)||(av!==0)||(hasAdded&&addedModeActive(mode));if(on){st.textContent='この設定はプレビューと書き出しに反映されます。';st.style.color='';}else if(anyVal){st.textContent='OFF のため、入力した値はプレビューにも書き出しにも反映されません。使うときはこのスイッチを ON にしてください。';st.style.color='#e0a030';}else{st.textContent='OFF: 音声のタイミングは元のままです。';st.style.color='';}}}
 function ensureAuditionAudio(){if(!origAudio){origAudio=new Audio();origAudio.preload='metadata';}if(!addedAudio){addedAudio=new Audio();addedAudio.preload='metadata';}}
 function queueAuditionSync(){if(!auditionActive)return;if(!auditionRaf)auditionRaf=requestAnimationFrame(auditionTick);}
 function auditionTick(){auditionRaf=0;if(!auditionActive)return;syncAudition();auditionDiag();if(auditionActive)auditionRaf=requestAnimationFrame(auditionTick);}

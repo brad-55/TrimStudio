@@ -325,6 +325,9 @@ def plan(cfg, db, source, start_us, end_us, options, is_taken=None):
     has_video = any(st.get("type") == "video" for st in selected)
     out = output_path_for(source, actual_start, actual_end, container, options.get("outputPath"), has_video, options, is_taken)
     warnings = []
+    if options.get("audioTimingIgnored"):
+        warnings.append("音声タイミング調整が OFF のため、設定値（" + ", ".join(options["audioTimingIgnored"]) +
+                        "）はプレビューにも書き出しにも反映しません")
     for st in excluded:
         warnings.append("stream " + str(st.get("index")) + " (" + str(st.get("type")) + "/" + str(st.get("codec")) + ") was excluded as incompatible")
     if fallback:
@@ -1088,9 +1091,20 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
             except Exception:
                 pass
             note = "FLAC は可逆再エンコード（STREAMINFO 補正）" if built["container"] == "flac" else ""
+            _plan = built.get("audioPlan") or {}
+            _off = (_plan.get("offsets") or {}) if _plan else {}
             result = {"outputPath": str(out), "bytes": out.stat().st_size,
                       "actualStartUs": built["actualStartUs"], "actualEndUs": built["actualEndUs"],
                       "container": built["container"], "note": note,
+                      # Record the audio decision: without it a job cannot be audited
+                      # afterwards (what shift was requested and what was applied).
+                      "audio": {"timingOn": bool(options.get("audioTiming", True)),
+                                "mode": (built.get("audioPlan") or {}).get("mode") or options.get("audioMode") or "original",
+                                "requestedMs": {"orig": options.get("audioShiftMs"), "added": options.get("addedShiftMs")},
+                                "appliedMs": {"video": round((_off.get("video") or 0) / 1000.0, 3),
+                                              "audio": round((_off.get("audio") or 0) / 1000.0, 3),
+                                              "added": round((_off.get("added") or 0) / 1000.0, 3)},
+                                "ignored": options.get("audioTimingIgnored") or []},
                       "excluded": [st.get("index") for st in built["excluded"]],
                       "lossless": not reencode, "warnings": built["warnings"], "fallback": built["fallback"]}
             job.update(progress=1.0, message="done")

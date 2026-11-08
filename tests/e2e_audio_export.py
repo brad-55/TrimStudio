@@ -78,6 +78,26 @@ def streams_of(path):
         return []
 
 
+def flash_time(path):
+    """When the picture actually turns white: the content-level video reference."""
+    import re as _re
+    p = subprocess.run([FF, "-hide_banner", "-i", path, "-vf", "select='gt(scene,0.2)',showinfo",
+                        "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
+    m = _re.search(r"pts_time:([0-9.]+)", p.stderr or "")
+    return float(m.group(1)) if m else None
+
+
+def beep_time(path):
+    """When the tone actually starts: the content-level audio reference."""
+    import re as _re
+    p = subprocess.run([FF, "-hide_banner", "-i", path, "-af", "silencedetect=noise=-40dB:d=0.02",
+                        "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
+    m = _re.search(r"silence_end:\s*([0-9.]+)", p.stderr or "")
+    return float(m.group(1)) if m else None
+
+
 def packet_md5(path, stream_spec, start=None, dur=None):
     """Packet-level bit identity (plan E2E 1): reframe the copied AAC packets to ADTS
     and hash the bytes.  Decoded-sample hashes are sensitive to edit lists and priming
@@ -158,6 +178,17 @@ def main():
         st, r = call("POST", "/api/sources/open", {"path": p})
         if st != 200:
             print("open failed:", st, r); return 1
+    mpath = os.path.abspath(os.path.join(D, "marker_e2e_" + stamp + ".mp4"))
+    run([FF, "-y", "-v", "error", "-f", "lavfi", "-i", "color=black:s=320x240:r=30:d=1",
+         "-f", "lavfi", "-i", "color=white:s=320x240:r=30:d=11",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=11",
+         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+         "-map", "[v]", "-map", "2:a", "-af", "adelay=1000",
+         "-c:v", "libx264", "-g", "15", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "12", mpath])
+    st, r5 = call("POST", "/api/sources/open", {"path": mpath})
+    marker = (r5 or {}).get("source") or {}
+    if not marker.get("id"):
+        print("marker source open failed"); return 1
     st, r2 = call("POST", "/api/sources/open", {"path": vpath})
     vid = (r2 or {}).get("source") or {}
     st, r3 = call("POST", "/api/sources/open", {"path": apath})
@@ -236,6 +267,23 @@ def main():
     st, j = export(aud["id"], 1_000_000, 5_000_000, {"audioShiftMs": -1500})
     out3b = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out3b, "audio-only -1500ms (mp4) succeeds: " + str(j.get("error"))[:400])
+
+    # --- the content-level oracle: does the shift really move the sound? ---
+    # The picture turns white at source 1.0s and the tone starts at source 1.0s, so the
+    # measured (tone - cut) must equal the requested shift with its sign. This is
+    # independent of packet metadata (the E2E 1/2 checks) and catches an inverted sign.
+    print("\n-- content level shift (picture cut vs tone onset) --")
+    for shift, want in ((0, 0.0), (100, 0.1), (-100, -0.1), (600, 0.6)):
+        st, j = export(marker["id"], 500_000, 4_000_000, {"audioShiftMs": shift, "audioTiming": True})
+        mout = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+        check(j.get("status") == "done" and mout, "marker export %+dms succeeds: %s"
+              % (shift, str(j.get("error"))[:200]))
+        if not mout:
+            continue
+        fl, bp = flash_time(mout), beep_time(mout)
+        got = None if (fl is None or bp is None) else round(bp - fl, 4)
+        check(got is not None and abs(got - want) < 0.06,
+              "the sound really moves by %+dms at the content level: measured %s" % (shift, got))
 
     # --- 4: added mode with addedStartMs (plan E2E 4) ---
     st, j = export(vid["id"], 2_000_000, 6_000_000,
@@ -340,6 +388,12 @@ def main():
     if out8:
         ast = [s for s in streams_of(out8) if s.get("codec_type") == "audio"]
         check(len(ast) == 1, "audioTiming=false ignores the added track")
+        _w = ((j.get("result") or {}).get("warnings") or [])
+        check(any("OFF" in str(x) for x in _w),
+              "a shift typed while the switch is off is reported: " + str(_w)[:160])
+        _au = (j.get("result") or {}).get("audio") or {}
+        check(_au.get("timingOn") is False and _au.get("ignored"),
+              "the job result records what the switch dropped: " + str(_au)[:160])
         check(packet_md5(out8, "0:a") == packet_md5(vpath, "0:a", 2.0, 4.0),
               "audioTiming=false keeps the original audio bit exact")
         check(abs(float(ast[0].get("start_time") or 0)) < 0.25,
