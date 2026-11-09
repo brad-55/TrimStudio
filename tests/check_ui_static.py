@@ -97,6 +97,9 @@ check("qwen: the action bar is visible before anything is selected",
       '<div class="selbar" id="selBar">' in qwen and "bar.hidden=false;" in qwen
       and "b.disabled=n===0" in qwen)
 check("qwen: bulk download zips several files", "/api/fs/zip?" in qwen and 'paths:list' in qwen)
+check("qwen: display zoom defaults to 75% and is remembered",
+      'id="zoomSel"' in qwen and '<option value="75" selected>' in qwen
+      and "applyUiZoom" in qwen and "zoom:currentUiZoom()" in qwen)
 check("qwen: middle ellipsis helper", "function midEllipsis(" in qwen)
 check("qwen: entry name uses middle ellipsis", "midEllipsis(en.name,44)" in qwen)
 check("qwen: chip name uses middle ellipsis", "midEllipsis(s.name,26)" in qwen)

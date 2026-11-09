@@ -507,6 +507,10 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         </div>
 
         <div class="opt-grid" style="margin-top:10px">
+          <div class="field"><label>表示倍率</label><select class="inp" id="zoomSel">
+            <option value="60">60%</option><option value="67">67%</option>
+            <option value="75" selected>75%（既定）</option><option value="80">80%</option>
+            <option value="90">90%</option><option value="100">100%</option></select></div>
           <div class="field"><label>IN スナップ</label><select class="inp" id="inSnapSel">
             <option value="prev">前のキーフレーム</option><option value="next">次のキーフレーム</option></select></div>
           <div class="field"><label>OUT モード</label><select class="inp" id="outModeSel">
@@ -753,7 +757,7 @@ function saveSettings(){
       audioShiftMs:clampMs($("origShiftInp")?$("origShiftInp").value:0),
       addedShiftMs:clampMs($("addedShiftInp")?$("addedShiftInp").value:0),
       addedStartMs:startMsVal($("addedStartInp")?$("addedStartInp").value:0),
-      addedReencode:!!$("addedReencodeChk").checked};
+      addedReencode:!!$("addedReencodeChk").checked,zoom:currentUiZoom()};
     localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
   }catch(_){}
 }
@@ -762,10 +766,13 @@ function loadSettings(){
   if(!s)return;
   const set=(id,v)=>{if(v!==undefined&&v!==null&&$(id))$(id).value=v;};
   set("contSel",s.container);set("outPath",s.outPath);set("vbrInp",s.vbr);set("abrInp",s.abr);
+  if($("zoomSel")&&s.zoom)$("zoomSel").value=String(s.zoom);
+  applyUiZoom(s.zoom||75);
   set("inSnapSel",s.inSnap);set("outModeSel",s.outMode);
   if(s.outDir)outDir=s.outDir;
   if(s.encoder)$("encSel").value=s.encoder;
   $("stabChk").checked=!!s.stabilize;$("audioChk").checked=!!s.audio;
+  applyUiZoom(s.zoom||75);
   set("cropW",s.cropW);set("cropH",s.cropH);set("cropX",s.cropX);set("cropY",s.cropY);
   if(s.mode){state.mode=s.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===s.mode));
     $("reOpts").style.display=s.mode==="reencode"?"block":"none";}
@@ -780,7 +787,7 @@ function loadSettings(){
 }
 function bindSettings(){
   ["contSel","outPath","lutSel","encSel","stabChk","audioChk","vbrInp","abrInp","inSnapSel","outModeSel",
-   "cropW","cropH","cropX","cropY"].forEach(id=>{const el=$(id);if(!el)return;
+   "cropW","cropH","cropX","cropY","zoomSel"].forEach(id=>{const el=$(id);if(!el)return;
     el.addEventListener("change",saveSettings);el.addEventListener("input",saveSettings);});
 }
 async function boot(){
@@ -1658,6 +1665,7 @@ $("closeBrowse").addEventListener("click",closeBrowseModal);
 function hideBrowse(){$("browseModal").classList.remove("show");document.body.classList.remove("no-scroll");pickDir=false;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="none";}
 function closeBrowseModal(){hideBrowse();}
 $("driveSel").addEventListener("change",e=>{if(e.target.value)browseTo(e.target.value);});
+if($("zoomSel"))$("zoomSel").addEventListener("change",()=>{applyUiZoom(currentUiZoom());saveSettings();});
 /* --- bulk actions on the ticked files ------------------------------------------- */
 function pickedFilesOnly(){return selPaths().filter(p=>{const e=(browseEntries||[]).find(x=>x.path===p);return e&&!e.dir;});}
 if($("selAllBtn"))$("selAllBtn").addEventListener("click",()=>{
@@ -1726,6 +1734,16 @@ function clampMs(v){v=parseInt(v,10);if(!isFinite(v))v=0;return v;}
 function startMsVal(v){v=parseInt(v,10);if(!isFinite(v)||v<0)v=0;return v;}
 function audioShiftValue(target){return target==='orig'?clampMs($("origShiftInp")?$("origShiftInp").value:0):clampMs($("addedShiftInp")?$("addedShiftInp").value:0);}
 function msLabel(v){return (v>0?'+':'')+v+' ms';}
+/* Display scale.  The layout is designed at desktop size and reads best a bit smaller,
+   so 75% is the default; the picker lets each device override it. */
+function applyUiZoom(pct){
+  const v=Math.max(40,Math.min(150,parseInt(pct,10)||75));
+  try{document.documentElement.style.zoom=(v/100);}catch(_){}
+  try{document.documentElement.style.setProperty("--ui-zoom",(v/100));}catch(_){}
+  state.uiZoom=v;
+  return v;
+}
+function currentUiZoom(){const v=parseInt($("zoomSel")?$("zoomSel").value:75,10);return isFinite(v)?v:75;}
 function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;/* the jog sliders are relative: their centre already means "the value in use", so they are never moved to an absolute position. Only a stray off-centre handle (missed pointerup) is nudged back. */if(!fromJog&&((rng&&Number(rng.value)!==0)||(fine&&Number(fine.value)!==0))){if(rng)rng.value=0;if(fine)fine.value=0;}if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
   // A new shift re-opens the strict catch-up window: the audio still has to travel
   // to the new position and would otherwise be left behind by the 1s dead band.
@@ -1928,7 +1946,7 @@ vid.addEventListener('play',()=>{auditionGrace=Date.now();if(auditionActive)sync
 vid.addEventListener('pause',()=>{if(auditionActive)syncAudition(true);});
 vid.addEventListener('seeked',()=>{auditionGrace=Date.now();if(auditionActive)syncAudition(true);queueAuditionSync();});
 document.addEventListener('visibilitychange',()=>{if(!auditionActive)return;if(document.hidden){if(origAudio&&!origAudio.paused)origAudio.pause();if(addedAudio&&!addedAudio.paused)addedAudio.pause();}else{queueAuditionSync();}});
-updateAudioUI();setAudioShift('orig',state.audioShiftMs||0);setAudioShift('added',state.addedShiftMs||0);setAuditionToggle(false);auditionDiag(true);setInterval(function(){auditionDiag();},500);
+applyUiZoom(currentUiZoom());updateAudioUI();setAudioShift('orig',state.audioShiftMs||0);setAudioShift('added',state.addedShiftMs||0);setAuditionToggle(false);auditionDiag(true);setInterval(function(){auditionDiag();},500);
 $("spinEscape").addEventListener("click",releaseSpinner);
 
 /* reveal */
