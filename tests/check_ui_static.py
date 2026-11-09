@@ -244,10 +244,16 @@ check("audio: settings persistence", "audioMode:modeRadio?modeRadio.value" in qw
 check("audio: export payload", "o.audioMode=am" in qwen and "o.addedSourceId=" in qwen and "o.addedShiftMs=" in qwen and "o.addedStartMs=" in qwen and "o.addedReencode=" in qwen)
 check("audio: no media reload on start", "origAudio.getAttribute('data-src')!==audSrc" in qwen and "addedAudio.getAttribute('data-src')!==ap" in qwen)
 check("audio: never seeks while loading", "el.readyState<1||el.seeking" in qwen)
-check("audio: preview dead band is tight (100ms shifts are corrected)",
-      "Math.abs(d)>0.5" not in qwen and "Math.abs(d)>0.09" in qwen and "now-Number(el.dataset.seekAt)<220" in qwen)
+check("audio: preview corrects small drift smoothly, seeks only on real desync",
+      "Math.abs(d)>0.5" not in qwen and "ad>0.35" in qwen and "ad>0.045" in qwen
+      and "Math.abs(el.playbackRate-want)>0.0015" in qwen and "now-Number(el.dataset.seekAt)<600" in qwen)
+check("audio: preview clamps seeks to the media and never sits on the last frames",
+      "Math.min(target,dur-0.05)" in qwen and "if(el.ended)return seekNow();" in qwen
+      and "el.currentTime=0;" in qwen)
 check("audio: preview shows the live sync error", "映像とのずれ" in qwen and "auditionDelta" in qwen)
-check("audio: playback rate is never modulated", "1+k" not in qwen and "Math.max(-0.01,Math.min(0.01" not in qwen and "if(el.playbackRate!==1)el.playbackRate=1;" in qwen)
+check("audio: the rate nudge is bounded and reset when aligned",
+      "Math.max(-0.03,Math.min(0.03,-d*0.5))" in qwen and "1+k" in qwen
+      and "}else if(el.playbackRate!==1){" in qwen)
 check("audio: the preview UI removals", "auditionBar" not in qwen and "barStopBtn" not in qwen and "data-bar" not in qwen and "abHoldBtn" not in qwen and "testToneBtn" not in qwen and "playTestTone" not in qwen and "auditionBtn" not in qwen)
 check("audio: L/R split capability kept", "function ensureAudioGraph(" in qwen and "createStereoPanner" in qwen)
 check("audio: single alignment after metadata", "addEventListener('loadedmetadata',apply,{once:true})" in qwen)

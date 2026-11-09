@@ -249,5 +249,51 @@ S.syncAudition(false);
 check("the same target is still throttled", o._writes.length - w5 <= 1, o._writes.length - w5);
 S.stopAudition();
 
+// --- E. small drift is smoothed, only a real desync seeks ---------------------
+S.stopAudition();
+S.setAudioShift("orig", 0);
+P.state().source = { id: "s1", durationUs: 12e6 };
+P.state().inUs = 0;
+P.state().addedSource = null;
+$("auditionToggle").checked = true;
+v.paused = false;
+v.currentTime = 2;
+S.startAudition();
+const oo = P.orig();
+oo.currentTime = 2;            // exactly in sync
+oo.playbackRate = 1;
+S.syncAudition(false);
+check("smooth: in sync means rate 1", oo.playbackRate === 1, oo.playbackRate);
+
+oo.currentTime = 2.06;         // 60 ms ahead: inside the smooth zone
+const wSmall = oo._writes.length;   // count AFTER positioning the track
+S.syncAudition(false);
+check("smooth: a 60ms drift is corrected by rate, not by a seek",
+      oo._writes.length === wSmall && oo.playbackRate !== 1,
+      "writes=" + (oo._writes.length - wSmall) + " rate=" + oo.playbackRate);
+check("smooth: the rate nudge stays small", Math.abs(oo.playbackRate - 1) <= 0.031,
+      oo.playbackRate);
+
+oo.currentTime = 2.0;          // aligned again
+S.syncAudition(false);
+check("smooth: the rate returns to 1 once aligned", oo.playbackRate === 1, oo.playbackRate);
+
+H.advance(2000);
+oo.currentTime = 2.6;          // 600 ms: a real desync
+const wBig = oo._writes.length;
+S.syncAudition(false);
+check("desync: a 600ms error seeks", oo._writes.length === wBig + 1,
+      oo._writes.length - wBig);
+
+// a target past the end must never park the track on its last frames
+H.advance(2000);
+S.setAudioShift("orig", -9000);   // target = t + 9s, way past the 12s duration
+v.currentTime = 10;
+S.syncAudition(true);
+const last = oo._writes[oo._writes.length - 1];
+check("clamp: a seek past the end is clamped inside the media",
+      last !== undefined && last <= 12 && last >= 0, "wrote " + last);
+S.stopAudition();
+
 console.log(fails ? "RESULT: FAIL(" + fails + ")" : "RESULT: OK");
 process.exit(fails ? 1 : 0);

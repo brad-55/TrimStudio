@@ -1678,24 +1678,39 @@ function syncAudition(force){
      a short grace period keeps a burst of seeks from turning into machine-gun churn. */
   const settle=function(el,target,hardset){
     if(!el||el.readyState<1||el.seeking)return false;   /* not ready: try again next frame */
-    if(el.playbackRate!==1)el.playbackRate=1;
-    const d=(el.currentTime||0)-target;
-    /* 0.5s of slop used to be tolerated here, so a 100 ms setting played back with
-       up to half a second of error -- the preview looked right only for big shifts.
-       Keep the correction tight; the cooldown below stops seek churn. */
+    /* Clamp into the media: asking for a position past the end makes the browser sit
+       on the last frames, which is exactly the "end of the video keeps playing at the
+       start" symptom. */
+    const dur=isFinite(el.duration)?el.duration:0;
+    const tgt=dur>0?Math.max(0,Math.min(target,dur-0.05)):Math.max(0,target);
+    const d=(el.currentTime||0)-tgt;
+    const ad=Math.abs(d);
     auditionDelta=d;
-    if(!(hardset||force||Math.abs(d)>0.09))return true;  /* already aligned */
-    const now=Date.now();
-    const last=el.dataset.seekTarget;
-    /* A different target (a new shift, or the onset of a held track) must never be
-       swallowed by the churn guard, otherwise the audio keeps playing at the old,
-       unshifted position. The guard only throttles repeats of the SAME target. */
-    const same=last!==undefined&&Math.abs(Number(last)-target)<0.05;
-    if(same&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<220)return false;
-    el.dataset.seekTarget=String(target);
-    el.dataset.seekAt=String(now);
-    auditionDelta=d;
-    try{el.currentTime=target;}catch(_){return false;}
+    const seekNow=function(){
+      const now=Date.now();
+      const last=el.dataset.seekTarget;
+      /* A different target (a new shift, the onset of a held track) must never be
+         swallowed by the churn guard; it only throttles repeats of the SAME jump. */
+      const same=last!==undefined&&Math.abs(Number(last)-tgt)<0.05;
+      if(!hardset&&same&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<600)return false;
+      el.dataset.seekTarget=String(tgt);
+      el.dataset.seekAt=String(now);
+      try{el.currentTime=tgt;}catch(_){return false;}
+      if(el.playbackRate!==1)el.playbackRate=1;
+      return true;
+    };
+    if(el.ended)return seekNow();
+    /* Hard seek only for a real desync.  Everything smaller is corrected by nudging the
+       playback rate, because a seek per frame is what made the preview stutter, replay
+       the same fragment and jump to the wrong place. */
+    if(hardset||force||ad>0.35)return seekNow();
+    if(ad>0.045){
+      const k=Math.max(-0.03,Math.min(0.03,-d*0.5));
+      const want=1+k;
+      if(Math.abs(el.playbackRate-want)>0.0015)el.playbackRate=want;
+    }else if(el.playbackRate!==1){
+      el.playbackRate=1;
+    }
     return true;
   };
   const follow=function(el){
@@ -1711,6 +1726,11 @@ function syncAudition(force){
     if(target<0){
       el.volume=0;
       el.dataset[flag]='1';
+      /* Waiting for the onset: hold the element near zero instead of letting it run on
+         to the end of the file (that is how the closing second ended up playing at the
+         start).  It is silent, so the seek cannot be heard. */
+      if(!el.seeking&&el.readyState>=1&&(el.currentTime||0)>0.15){try{el.currentTime=0;}catch(_){}}
+      if(el.playbackRate!==1)el.playbackRate=1;
       follow(el);
       return;
     }
