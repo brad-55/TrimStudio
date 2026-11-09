@@ -1197,14 +1197,14 @@ function onExportDone(r){
     ["変換",state.mode==="lossless"?"無変換":"再エンコード"]];
   if(r.actualStartUs!=null)rows.push(["実カット",(fmt(r.actualStartUs)+" → "+fmt(r.actualEndUs))]);
   if(r.audioReencoded)rows.push(["音声","音声のみ再エンコード（映像は無変換）"]);
-  if(r.audioLeadMs!=null&&r.requestedShiftMs){
-    /* Objective check: the file itself is measured, so "the shift is/isn't in the
-       exported file" is a number instead of an impression. */
-    const lead=Math.round(r.audioLeadMs);
+  if(r.audioShiftMeasuredMs!=null&&r.requestedShiftMs){
+    /* Objective check: the file itself is measured against the source at the same
+       cut point, so "the shift is/isn't in the exported file" is a number. */
+    const got=Math.round(r.audioShiftMeasuredMs);
     const req=Math.round(r.requestedShiftMs);
-    rows.push(["実測の音の遅れ",lead+" ms（要求 "+(req>0?"+":"")+req+" ms）"+
-      (req>0&&Math.abs(lead-req)<=40?" ✓ 書き出しに反映されています"
-        :(req>0?" ⚠ 要求と差があります":""))]);
+    const okc=Math.abs(got-req)<=60;
+    rows.push(["ずらし実測",(got>0?"+":"")+got+" ms（要求 "+(req>0?"+":"")+req+" ms）"+
+      (okc?" ✓ 書き出しに反映されています":" ⚠ 要求と差があります（"+got+"ms）")]);
   }
   if(r.note)rows.push(["備考",r.note]);
   (r.warnings||[]).forEach((w,i)=>rows.push([i===0?"警告":"",w]));

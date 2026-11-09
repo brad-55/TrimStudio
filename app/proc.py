@@ -148,21 +148,101 @@ def audio_lead_ms(fp, path, limit_ms=3000):
         out = subprocess.run([str(fp).replace("ffprobe", "ffmpeg"), "-v", "error", "-i", str(path),
                               "-map", "0:a:0", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
                              capture_output=True, creationflags=ffmpeg_tools.CREATE_NO_WINDOW).stdout
-        if not out:
-            return None
-        import array
-        samples = array.array("h")
-        samples.frombytes(out[:len(out) // 2 * 2])
-        peak = max((abs(x) for x in samples), default=0)
-        if peak <= 0:
-            return None
-        threshold = max(200, int(peak * 0.05))
-        for i, value in enumerate(samples):
-            if abs(value) > threshold:
-                return round(i * 1000.0 / 8000.0, 1)
-        return None
+        return _lead_of(out)
     except Exception:
         return None
+
+
+def audio_lead_ms_at(fp, path, start_us, window_s=3.0):
+    """Leading silence (ms) of the source audio when the cut starts at start_us.
+
+    Comparing this with the exported file's lead gives the shift that was really
+    applied -- a number the user can check instead of an impression.
+    """
+    import subprocess
+    try:
+        ff = str(fp).replace("ffprobe", "ffmpeg")
+        out = subprocess.run([ff, "-v", "error", "-ss", "%.6f" % (max(0, start_us) / 1e6),
+                              "-t", str(window_s), "-i", str(path), "-map", "0:a:0",
+                              "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+                             capture_output=True, creationflags=ffmpeg_tools.CREATE_NO_WINDOW).stdout
+        return _lead_of(out)
+    except Exception:
+        return None
+
+
+def measured_shift_ms(fp, source_path, start_us, out_path, window_s=2.0, rate=8000):
+    """Audio shift really present in the export, by waveform cross-correlation.
+
+    Leading-silence heuristics lie on quiet material (a single loud event sets the
+    threshold and the ambient part reads as silence).  Correlating the export against
+    the source at the same cut point gives the true offset in milliseconds.
+    """
+    import subprocess
+    try:
+        import numpy as np
+    except Exception:
+        return None
+    ff = str(fp).replace("ffprobe", "ffmpeg")
+    flag = ffmpeg_tools.CREATE_NO_WINDOW
+
+    def pcm(pre):
+        cmd = [ff, "-v", "error"] + pre + ["-ac", "1", "-ar", str(rate), "-f", "s16le", "-"]
+        raw = subprocess.run(cmd, capture_output=True, creationflags=flag).stdout
+        return np.frombuffer(raw, dtype="<i2").astype(np.float64)
+
+    try:
+        ref = pcm(["-ss", "%.6f" % (max(0, start_us) / 1e6), "-t", str(window_s),
+                   "-i", str(source_path), "-map", "0:a:0"])
+        got = pcm(["-t", str(window_s + 2.0), "-i", str(out_path), "-map", "0:a:0"])
+    except Exception:
+        return None
+    if ref.size < rate // 2 or got.size < ref.size:
+        return None
+    ref = ref - ref.mean()
+    got = got - got.mean()
+    n = 1
+    while n < got.size + ref.size:
+        n *= 2
+    corr = np.fft.irfft(np.fft.rfft(got, n) * np.conj(np.fft.rfft(ref, n)), n)
+    corr = corr[:got.size - ref.size + 1]
+    lag = int(np.argmax(corr))
+    # Periodic material (music with a steady beat) correlates almost as well one beat
+    # away, so refuse to report a number when the best peak is not clearly ahead.
+    mask = np.ones(corr.shape, dtype=bool)
+    lo = max(0, lag - int(rate * 0.08))
+    hi = min(corr.size, lag + int(rate * 0.08) + 1)
+    mask[lo:hi] = False
+    if mask.any():
+        second = float(np.max(corr[mask]))
+        best = float(corr[lag])
+        if best <= 0 or second >= best * 0.9:
+            return None
+    # sub-sample refine on the correlation peak
+    if 0 < lag < corr.size - 1:
+        a, b, c = corr[lag - 1], corr[lag], corr[lag + 1]
+        den = (a - 2 * b + c)
+        if abs(den) > 1e-9:
+            lag = lag + 0.5 * (a - c) / den
+    return round(lag * 1000.0 / rate, 1)
+
+
+def _lead_of(raw):
+    if not raw:
+        return None
+    import array
+    samples = array.array("h")
+    samples.frombytes(raw[:len(raw) // 2 * 2])
+    if not samples:
+        return None
+    peak = max((abs(x) for x in samples), default=0)
+    if peak <= 0:
+        return None
+    threshold = max(120, int(peak * 0.03))
+    for i, value in enumerate(samples):
+        if abs(value) > threshold:
+            return round(i * 1000.0 / 8000.0, 1)
+    return None
 
 
 def probe_media(fp, path):

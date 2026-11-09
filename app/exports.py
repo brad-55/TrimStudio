@@ -9,7 +9,8 @@ from pathlib import Path
 
 from . import cleanup, ffmpeg_tools, security
 from .media import is_hdr, streams_to_info
-from .proc import audio_lead_ms, log_debug, probe_media, run_ffmpeg_job
+from .proc import (audio_lead_ms, audio_lead_ms_at, log_debug, measured_shift_ms,
+                   probe_media, run_ffmpeg_job)
 
 EXT_CONTAINER = {".mp4": "mp4", ".m4v": "mp4", ".mov": "mov", ".mkv": "matroska",
                  ".webm": "webm", ".ts": "matroska", ".m2ts": "matroska",
@@ -769,6 +770,14 @@ def build_reencode_args(cfg, source, out, container, selected, start_us, end_us,
     return args, detect, work
 
 
+def _measured_shift(fp, source, built, out):
+    """Shift actually present in the exported file (ms, + = sound later)."""
+    try:
+        return measured_shift_ms(fp, source["path"], built["actualStartUs"], out)
+    except Exception:
+        return None
+
+
 def _ms_us(v):
     """Milliseconds (the API unit) to microseconds (the internal time base)."""
     try:
@@ -1293,9 +1302,13 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                       and not (built.get("reencodeFilterShiftMs") or 0),
                       "audioReencoded": bool((_off.get("audioDelayUs") or 0)
                                              or (built.get("reencodeFilterShiftMs") or 0)),
-                      # Measured, not assumed: how late the sound starts in the file.
-                      # This is what lets the UI say "the shift really is in here".
+                      # Measured, not assumed.  The output's own leading silence minus
+                      # the source's leading silence at the same cut point is the shift
+                      # that really landed in the file, so the UI can show a number
+                      # instead of leaving the user to guess by ear.
                       "audioLeadMs": audio_lead_ms(fp, out),
+                      "sourceLeadMs": audio_lead_ms_at(fp, source["path"], built["actualStartUs"]),
+                      "audioShiftMeasuredMs": _measured_shift(fp, source, built, out),
                       "requestedShiftMs": options.get("audioShiftMs"),
                       "warnings": built["warnings"], "fallback": built["fallback"]}
             job.update(progress=1.0, message="done")
