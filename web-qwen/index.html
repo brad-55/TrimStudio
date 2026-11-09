@@ -766,13 +766,12 @@ function loadSettings(){
   if(!s)return;
   const set=(id,v)=>{if(v!==undefined&&v!==null&&$(id))$(id).value=v;};
   set("contSel",s.container);set("outPath",s.outPath);set("vbrInp",s.vbr);set("abrInp",s.abr);
-  if($("zoomSel")&&s.zoom)$("zoomSel").value=String(s.zoom);
-  applyUiZoom(s.zoom||75);
+  if($("zoomSel"))$("zoomSel").value=String(s.zoom||defaultUiZoom());
+  applyUiZoom(s.zoom||defaultUiZoom());
   set("inSnapSel",s.inSnap);set("outModeSel",s.outMode);
   if(s.outDir)outDir=s.outDir;
   if(s.encoder)$("encSel").value=s.encoder;
   $("stabChk").checked=!!s.stabilize;$("audioChk").checked=!!s.audio;
-  applyUiZoom(s.zoom||75);
   set("cropW",s.cropW);set("cropH",s.cropH);set("cropX",s.cropX);set("cropY",s.cropY);
   if(s.mode){state.mode=s.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===s.mode));
     $("reOpts").style.display=s.mode==="reencode"?"block":"none";}
@@ -1736,14 +1735,15 @@ function audioShiftValue(target){return target==='orig'?clampMs($("origShiftInp"
 function msLabel(v){return (v>0?'+':'')+v+' ms';}
 /* Display scale.  The layout is designed at desktop size and reads best a bit smaller,
    so 75% is the default; the picker lets each device override it. */
+function defaultUiZoom(){return (window.innerWidth&&window.innerWidth<700)?100:75;}
 function applyUiZoom(pct){
-  const v=Math.max(40,Math.min(150,parseInt(pct,10)||75));
+  const v=Math.max(40,Math.min(150,parseInt(pct,10)||defaultUiZoom()));
   try{document.documentElement.style.zoom=(v/100);}catch(_){}
   try{document.documentElement.style.setProperty("--ui-zoom",(v/100));}catch(_){}
   state.uiZoom=v;
   return v;
 }
-function currentUiZoom(){const v=parseInt($("zoomSel")?$("zoomSel").value:75,10);return isFinite(v)?v:75;}
+function currentUiZoom(){const v=parseInt($("zoomSel")?$("zoomSel").value:defaultUiZoom(),10);return isFinite(v)?v:defaultUiZoom();}
 function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;/* the jog sliders are relative: their centre already means "the value in use", so they are never moved to an absolute position. Only a stray off-centre handle (missed pointerup) is nudged back. */if(!fromJog&&((rng&&Number(rng.value)!==0)||(fine&&Number(fine.value)!==0))){if(rng)rng.value=0;if(fine)fine.value=0;}if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
   // A new shift re-opens the strict catch-up window: the audio still has to travel
   // to the new position and would otherwise be left behind by the 1s dead band.
