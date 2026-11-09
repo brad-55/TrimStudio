@@ -210,7 +210,9 @@ S.setAudioShift("orig", 5000);
 v.currentTime = 1;
 for (let i = 0; i < 10; i++) { S.syncAudition(false); }
 check("hold: the track is silent while it waits", o.volume === 0, o.volume);
-check("hold: the track is never paused", o._pauses === pauses0, o._pauses - pauses0);
+check("hold: the waiting track stays silent and parked at the head",
+      o.volume === 0 && (o.currentTime <= 0.05 || o.seeking === true),
+      "vol=" + o.volume + " t=" + o.currentTime);
 check("hold: the rate stays 1", o.playbackRate === 1, o.playbackRate);
 S.stopAudition();
 check("sync: stopping clears the active flag", P.active() === false, P.active());
@@ -265,24 +267,19 @@ oo.playbackRate = 1;
 S.syncAudition(false);
 check("smooth: in sync means rate 1", oo.playbackRate === 1, oo.playbackRate);
 
-oo.currentTime = 2.06;         // 60 ms ahead: inside the smooth zone
+oo.currentTime = 2.06;         // 60 ms ahead: harmless drift
 const wSmall = oo._writes.length;   // count AFTER positioning the track
 S.syncAudition(false);
-check("smooth: a 60ms drift is corrected by rate, not by a seek",
-      oo._writes.length === wSmall && oo.playbackRate !== 1,
+check("stable: a 60ms drift is left alone (no seek, no rate wobble)",
+      oo._writes.length === wSmall && oo.playbackRate === 1,
       "writes=" + (oo._writes.length - wSmall) + " rate=" + oo.playbackRate);
-check("smooth: the rate nudge stays small", Math.abs(oo.playbackRate - 1) <= 0.031,
-      oo.playbackRate);
-
-oo.currentTime = 2.0;          // aligned again
-S.syncAudition(false);
-check("smooth: the rate returns to 1 once aligned", oo.playbackRate === 1, oo.playbackRate);
+check("stable: the rate is never modulated", oo.playbackRate === 1, oo.playbackRate);
 
 H.advance(2000);
-oo.currentTime = 2.6;          // 600 ms: a real desync
+oo.currentTime = 3.5;          // 1.5 s: genuinely out of sync
 const wBig = oo._writes.length;
 S.syncAudition(false);
-check("desync: a 600ms error seeks", oo._writes.length === wBig + 1,
+check("desync: a 1.5s error seeks once", oo._writes.length === wBig + 1,
       oo._writes.length - wBig);
 
 // a target past the end must never park the track on its last frames
