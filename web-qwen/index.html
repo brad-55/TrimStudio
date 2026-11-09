@@ -197,11 +197,16 @@ body.no-scroll{overflow:hidden;touch-action:none}
 .crumbs button{color:var(--blue);padding:2px 5px;border-radius:6px}
 .crumbs button:hover{background:#20263380}
 .list{overflow:auto;flex:1;padding:6px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
-.entry{display:grid;grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"ic nm sz" ". dt dt" ". acts acts";gap:6px 10px;align-items:center;padding:10px 12px;border-radius:9px;width:100%;text-align:left}
+.entry{display:grid;grid-template-columns:22px 24px minmax(0,1fr) auto;grid-template-areas:"mark ic nm sz" ". . dt dt";gap:6px 10px;align-items:center;padding:10px 12px;border-radius:9px;width:100%;text-align:left}
 .entry:hover{background:#20263380}
 .entry .ic{grid-area:ic;width:24px;text-align:center;font-size:15px}
 .entry .nm{grid-area:nm;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .entry .sz{grid-area:sz;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;min-width:0}
+.selbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);background:#1b202a}
+.selbar .sel-count{font-size:12px;color:var(--muted);margin-right:4px}
+.btn.danger{color:#e06c6c;border-color:#e06c6c66}
+.entry .sel-box{grid-area:mark;width:18px;height:18px;line-height:16px;text-align:center;border:1px solid var(--line);border-radius:5px;font-size:12px;color:var(--blue)}
+.entry.sel{background:#24304380;border-color:var(--blue)}
 .entry .dt{grid-area:dt;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;line-height:1.45}
 .entry .dt i{font-style:normal;display:inline-block;width:2.1em;color:var(--muted);opacity:.75}
 .sheet-foot{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -589,6 +594,15 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
     </div>
     <div class="row" style="padding:8px 14px;border-bottom:1px solid var(--line)"><select class="inp" id="driveSel" title="ドライブを切り替え"></select><select class="inp" id="sortSel" title="並び替え"><option value="name">名前順</option><option value="mtimeDesc">更新が新しい順</option><option value="mtimeAsc">更新が古い順</option></select></div>
     <div class="crumbs" id="crumbs"></div>
+    <div class="selbar" id="selBar" hidden>
+      <span class="sel-count" id="selCount">0 件選択中</span>
+      <button class="btn sm" id="selAllBtn">全選択</button>
+      <button class="btn sm" id="selCopyBtn">コピー</button>
+      <button class="btn sm" id="selMoveBtn">移動</button>
+      <button class="btn sm" id="selDlBtn">ダウンロード</button>
+      <button class="btn sm danger" id="selDelBtn">削除</button>
+      <button class="btn sm ghost" id="selClearBtn">解除</button>
+    </div>
     <div class="list" id="browseList"></div>
     <div class="sheet-foot">
       <input class="inp mono" id="pathInput" placeholder="パスを直接入力…">
@@ -1222,6 +1236,23 @@ function onExportDone(r){
 /* ---------- browse modal ---------- */
 let browsePath="";  // session only: the video picker starts at the Videos folder
 let browseEntries=[], browseMore=false;
+let browseSel=new Set();          /* paths ticked for copy / move / download / delete */
+let pickSources=null;             /* batch source list while choosing a destination */
+let browseData=null;             /* last listing, so a tick can repaint without refetching */
+function togglePicked(path){
+  if(browseSel.has(path))browseSel.delete(path);else browseSel.add(path);
+  renderSelBar();
+  if(browseData)renderBrowse(browseData, true);
+}
+function renderSelBar(){
+  const bar=document.getElementById("selBar");if(!bar)return;
+  const n=browseSel.size;
+  bar.hidden=n===0;
+  const label=document.getElementById("selCount");
+  if(label)label.textContent=n+" 件選択中";
+}
+function selPaths(){return Array.from(browseSel);}
+function clearSel(){browseSel.clear();renderSelBar();}
 let outDir="";     // last used output destination (start folder of the output picker)
 let pickDir=false,pickLut=false;
 let pickAction=null,pickSource=null;
@@ -1266,7 +1297,9 @@ async function browseTo(path,fresh,offset){
     $("browseList").textContent="開けませんでした: "+e.message;
   }
 }
-function renderBrowse(d){
+function renderBrowse(d, keepScroll){
+  browseData=d;
+  const scrolled=keepScroll?$("browseList").scrollTop:0;
   const crumbs=$("crumbs");crumbs.textContent="";
   if(d.parent){const b=document.createElement("button");b.textContent="↑ ..";b.addEventListener("click",()=>browseTo(d.parent));crumbs.appendChild(b);}
   const parts=(d.path||"").split(/[\\/]+/).filter(Boolean);
@@ -1287,40 +1320,26 @@ function renderBrowse(d){
   });
   const frag=document.createDocumentFragment();
   allRows.forEach(en=>{
-    const b=document.createElement("button");b.className="entry";
+    const b=document.createElement("button");b.className="entry"+(browseSel.has(en.path)?" sel":"");
+    /* Selection drives copy/move/download/delete; tapping the name still opens it. */
+    const mark=document.createElement("span");mark.className="sel-box";
+    mark.textContent=browseSel.has(en.path)?"✓":"";
+    mark.addEventListener("click",ev=>{ev.stopPropagation();togglePicked(en.path);});
     const ic=document.createElement("span");ic.className="ic";ic.textContent=en.dir?"📁":"🎞️";
     const nm=document.createElement("span");nm.className="nm";nm.textContent=midEllipsis(en.name,44);nm.title=en.name;
-    b.appendChild(ic);b.appendChild(nm);
+    b.appendChild(mark);b.appendChild(ic);b.appendChild(nm);
     if(!en.dir){const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtBytes(en.size);b.appendChild(sz);}
     const dt=document.createElement("span");dt.className="dt";
     dt.dataset.shotPath=en.path;dt.dataset.mt=fmtDate(en.mtimeMs);dt.dataset.ct=fmtDate(en.ctimeMs);
     dt.dataset.isdir=en.dir?"1":"";
-    dt.innerHTML="<i>撮影</i> "+(en.dir?"—":"—")+"<br><i>作成</i> "+fmtDate(en.ctimeMs)+"<br><i>更新</i> "+fmtDate(en.mtimeMs);
+    dt.innerHTML="<i>撮影</i> —<br><i>作成</i> "+fmtDate(en.ctimeMs)+"<br><i>更新</i> "+fmtDate(en.mtimeMs);
     b.appendChild(dt);
-    const cp=document.createElement("span");cp.className="act";cp.textContent="コピー";
-    cp.addEventListener("click",ev=>{ev.stopPropagation();pickAction="copy";pickSource=en.path;$("useDirBtn").textContent="ここにコピー";$("useDirBtn").style.display="inline-flex";toast("移動先フォルダを開いて「ここにコピー」");});
-    const acts=document.createElement("span");acts.className="acts";acts.appendChild(cp);
-    const mv=document.createElement("span");mv.className="act";mv.textContent="移動";
-    mv.addEventListener("click",ev=>{ev.stopPropagation();pickAction="move";pickSource=en.path;$("useDirBtn").textContent="ここに移動";$("useDirBtn").style.display="inline-flex";toast("移動先フォルダを開いて「ここに移動」");});
-    acts.appendChild(mv);
-    const dl=document.createElement("a");dl.className="act";dl.textContent="ダウンロード";
-    dl.href="/api/fs/download?path="+encodeURIComponent(en.path);dl.setAttribute("download","");
-    dl.addEventListener("click",ev=>ev.stopPropagation());
-    acts.appendChild(dl);
-    if(!en.dir){
-      const rm=document.createElement("span");rm.className="act del";rm.textContent="削除";
-      rm.addEventListener("click",async ev=>{ev.stopPropagation();
-        if(!confirm("このファイルを削除しますか？\n\n"+en.name+"\n\n元に戻せません。"))return;
-        try{await api("/api/fs/delete",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({path:en.path})});toast("削除しました: "+en.name);browseTo(browsePath);}
-        catch(e){showErr("削除できませんでした: "+e.message);}});
-      acts.appendChild(rm);
-    }
-    b.appendChild(acts);
-    b.addEventListener("click",()=>{if(en.dir)browseTo(en.path);else if(!pickAction)openLocal(en.path);});
+    b.addEventListener("click",()=>{if(browseSel.size>0){togglePicked(en.path);return;}
+      if(en.dir)browseTo(en.path);else if(!pickAction)openLocal(en.path);});
     frag.appendChild(b);});
   list.appendChild(frag);
   list.appendChild(buildMoreRow(d));
+  if(keepScroll)list.scrollTop=scrolled;
   fillShotDates(list);}
 function buildMoreRow(d){
   const wrap=document.createElement("div");wrap.className="more-row";wrap.style.cssText="padding:8px;text-align:center";
@@ -1615,9 +1634,12 @@ $("useDirBtn").addEventListener("click",async()=>{
   if(!browsePath)return;
   if(pickAction){
     const verb=pickAction==="move"?"移動":"コピー";
-    try{await api("/api/fs/"+pickAction,{method:"POST",body:JSON.stringify({source:pickSource,destination:browsePath})});
-      toast(verb+"を開始しました（ジョブ一覧に表示）");refreshJobs();}
+    const list=(pickSources&&pickSources.length)?pickSources:(pickSource?[pickSource]:[]);
+    try{await api("/api/fs/"+pickAction,{method:"POST",body:JSON.stringify({sources:list,destination:browsePath})});
+      toast(verb+"を開始しました（"+list.length+"件・ジョブ一覧に表示）");refreshJobs();
+      clearSel();}
     catch(e){showErr(verb+"失敗: "+e.message);}
+    pickSources=null;
     hideBrowse();return;
   }
   if(pickLut){pickLut=false;const p2=browsePath;hideBrowse();setLutDir(p2);return;}
@@ -1629,6 +1651,48 @@ $("closeBrowse").addEventListener("click",closeBrowseModal);
 function hideBrowse(){$("browseModal").classList.remove("show");document.body.classList.remove("no-scroll");pickDir=false;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="none";}
 function closeBrowseModal(){hideBrowse();}
 $("driveSel").addEventListener("change",e=>{if(e.target.value)browseTo(e.target.value);});
+/* --- bulk actions on the ticked files ------------------------------------------- */
+function pickedFilesOnly(){return selPaths().filter(p=>{const e=(browseEntries||[]).find(x=>x.path===p);return e&&!e.dir;});}
+if($("selAllBtn"))$("selAllBtn").addEventListener("click",()=>{
+  const all=(browseEntries||[]).filter(e=>!e.dir);
+  if(browseSel.size>=all.length)browseSel.clear();else all.forEach(e=>browseSel.add(e.path));
+  renderSelBar();if(browseData)renderBrowse(browseData,true);});
+if($("selClearBtn"))$("selClearBtn").addEventListener("click",()=>{clearSel();if(browseData)renderBrowse(browseData,true);});
+if($("selCopyBtn"))$("selCopyBtn").addEventListener("click",()=>{startBulkTransfer("copy");});
+if($("selMoveBtn"))$("selMoveBtn").addEventListener("click",()=>{startBulkTransfer("move");});
+function startBulkTransfer(kind){
+  const list=selPaths();
+  if(!list.length){toast("ファイルを選択してください",true);return;}
+  pickAction=kind;pickSources=list;pickSource=list[0];
+  $("useDirBtn").textContent=(kind==="move"?"ここに移動":"ここにコピー")+"（"+list.length+"件）";
+  $("useDirBtn").style.display="inline-flex";
+  toast("移動先フォルダを開いて「"+(kind==="move"?"ここに移動":"ここにコピー")+"」を押してください");
+}
+if($("selDlBtn"))$("selDlBtn").addEventListener("click",()=>{
+  const files=pickedFilesOnly();
+  if(!files.length){toast("ファイルを選択してください",true);return;}
+  if(files.length===1){
+    const a=document.createElement("a");a.href="/api/fs/download?path="+encodeURIComponent(files[0]);
+    a.setAttribute("download","");document.body.appendChild(a);a.click();a.remove();return;
+  }
+  const q=files.map(p=>"path="+encodeURIComponent(p)).join("&");
+  const a=document.createElement("a");a.href="/api/fs/zip?"+q;a.setAttribute("download","trim-files.zip");
+  document.body.appendChild(a);a.click();a.remove();
+});
+if($("selDelBtn"))$("selDelBtn").addEventListener("click",async()=>{
+  const list=selPaths();
+  if(!list.length){toast("ファイルを選択してください",true);return;}
+  const names=list.map(p=>p.split(/[\\/]/).pop()).slice(0,5).join("\n");
+  const more=list.length>5?"\n…ほか "+(list.length-5)+" 件":"";
+  if(!confirm(list.length+" 件を削除しますか？\n\n"+names+more+"\n\n元に戻せません。"))return;
+  try{
+    const d=await api("/api/fs/delete",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({paths:list})});
+    const f=(d&&d.failed)||[];
+    toast("削除しました: "+(d&&d.count||0)+" 件"+(f.length?" / 失敗 "+f.length+" 件":""),f.length>0);
+    clearSel();browseTo(browsePath);
+  }catch(e){showErr("削除できませんでした: "+e.message);}
+});
 if($("sortSel"))$("sortSel").addEventListener("change",()=>{if(browsePath)browseTo(browsePath);});
 $("upBtn").addEventListener("click",()=>{if(browseParent)browseTo(browseParent);});
 $("goPath").addEventListener("click",()=>{const p=$("pathInput").value.trim();if(p)browseTo(p);});

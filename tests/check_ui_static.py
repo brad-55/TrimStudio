@@ -74,7 +74,9 @@ check("qwen: metadata outside the button row",
 
 # 6) copy/move buttons exist in both explorers
 check("web: explorer copy/move", 'openOutBrowse("copy"' in web_js and 'openOutBrowse("move"' in web_js)
-check("qwen: explorer copy/move", 'pickAction="copy"' in qwen and 'pickAction="move"' in qwen)
+check("qwen: explorer copy/move act on the selection",
+      'startBulkTransfer("copy")' in qwen and 'startBulkTransfer("move")' in qwen
+      and "pickSources=list" in qwen and "sources:list" in qwen)
 
 # 7) job list shows the queue with a summary in both UIs
 check("web: jobs summary", 'id="jobs-summary"' in web_html and "待機中" in web_js)
@@ -88,8 +90,10 @@ check("qwen: pollers are silent", qwen.count("{silent:true}") >= 2)
 check("qwen: silent flag not deleted before use", "delete opt.silent" not in qwen and qwen.index("const silent=!!opt.silent;") < qwen.index("await fetch(path,opt)"))
 
 # 9) long file names: reserved area + middle ellipsis
-check("qwen: entry gives the name its own row", "grid-template-areas" in qwen and '"ic nm sz"' in qwen)
-check("qwen: explorer actions have their own row", ".entry .acts{" in qwen and 'acts.className="acts"' in qwen)
+check("qwen: entry gives the name its own row", "grid-template-areas" in qwen and '"mark ic nm sz"' in qwen)
+check("qwen: explorer actions are a selection bar, not per-row buttons",
+      "id=\"selBar\"" in qwen and "togglePicked" in qwen and 'class="act"' not in qwen.split("allRows.forEach")[1].split("list.appendChild(frag)")[0])
+check("qwen: bulk download zips several files", "/api/fs/zip?" in qwen and 'paths:list' in qwen)
 check("qwen: middle ellipsis helper", "function midEllipsis(" in qwen)
 check("qwen: entry name uses middle ellipsis", "midEllipsis(en.name,44)" in qwen)
 check("qwen: chip name uses middle ellipsis", "midEllipsis(s.name,26)" in qwen)

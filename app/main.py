@@ -353,27 +353,43 @@ def create_app():
         body = await json_object(request)
         if body is None:
             return err("invalid_request", "request body must be a JSON object", 400)
-        raw = (body.get("path") or "").strip()
-        if not raw:
+        paths = body.get("paths")
+        if isinstance(paths, list):
+            wanted = [str(x).strip() for x in paths if str(x).strip()]
+        else:
+            one = str(body.get("path") or "").strip()
+            wanted = [one] if one else []
+        if not wanted:
             return err("invalid_path", "path is required", 400)
-        try:
-            real = security.check_path(raw, cfg)
-        except (ValueError, PermissionError) as exc:
-            return err("invalid_path", str(exc), 400)
-        target = Path(real)
-        if target.suffix.lower() not in MEDIA_EXTS:
-            # Keep the appliance to media files: never a way to wipe arbitrary data.
-            return err("invalid_path", "動画・音声ファイルのみ削除できます", 400)
-        if not target.is_file():
-            return err("not_found", "ファイルが見つかりません: " + raw, 404)
-        try:
-            size = target.stat().st_size
-            target.unlink()
-        except OSError as exc:
-            return err("delete_failed", "削除できませんでした: " + str(exc), 400)
-        # Forget the cached recording date and any sandboxed copy of the row.
-        MEDIA_DATE_CACHE.pop(str(target), None)
-        return {"deleted": True, "path": str(target), "bytes": size}
+        if len(wanted) > 200:
+            return err("invalid_path", "一度に削除できるのは200件までです", 400)
+        deleted, failed = [], []
+        for raw in wanted:
+            try:
+                real = security.check_path(raw, cfg)
+            except (ValueError, PermissionError) as exc:
+                failed.append({"path": raw, "error": str(exc)})
+                continue
+            target = Path(real)
+            if target.suffix.lower() not in MEDIA_EXTS:
+                # Keep the appliance to media files: never a way to wipe arbitrary data.
+                failed.append({"path": raw, "error": "動画・音声ファイルのみ削除できます"})
+                continue
+            if not target.is_file():
+                failed.append({"path": raw, "error": "見つかりません"})
+                continue
+            try:
+                size = target.stat().st_size
+                target.unlink()
+            except OSError as exc:
+                failed.append({"path": raw, "error": "削除できませんでした: " + str(exc)})
+                continue
+            MEDIA_DATE_CACHE.pop(str(target), None)
+            deleted.append({"path": str(target), "bytes": size})
+        if not deleted:
+            return err("delete_failed", failed[0]["error"] if failed else "削除できませんでした", 400)
+        return {"deleted": True, "count": len(deleted), "paths": [d["path"] for d in deleted],
+                "failed": failed}
 
     @app.get("/api/fs/download")
     def fs_download(path: str = ""):
@@ -395,21 +411,68 @@ def create_app():
                             media_type=MIME.get(target.suffix.lower(), "application/octet-stream"),
                             filename=target.name)
 
+    @app.get("/api/fs/zip")
+    def fs_zip(request: Request):
+        """Bundle several selected files into one download."""
+        wanted = [p.strip() for p in request.query_params.getlist("path") if p and p.strip()]
+        if not wanted:
+            return err("invalid_path", "path is required", 400)
+        if len(wanted) > 200:
+            return err("invalid_path", "一度に指定できるのは200件までです", 400)
+        import tempfile
+        import zipfile
+        bundle = Path(tempfile.mkdtemp(prefix="trimzip", dir=str(cfg.work_dir)))
+        archive = bundle / "trim-files.zip"
+        used = set()
+        try:
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for raw in wanted:
+                    try:
+                        real = security.check_path(raw, cfg)
+                    except (ValueError, PermissionError):
+                        continue
+                    item = Path(real)
+                    if not item.is_file() or item.suffix.lower() not in MEDIA_EXTS:
+                        continue
+                    name = item.name
+                    index = 1
+                    while name in used:
+                        name = "%s-%d%s" % (item.stem, index, item.suffix)
+                        index += 1
+                    used.add(name)
+                    zf.write(long_path(str(item)) if "long_path" in globals() else str(item), name)
+        except Exception as exc:
+            shutil.rmtree(bundle, ignore_errors=True)
+            return err("zip_failed", "まとめられませんでした: " + str(exc), 400)
+        return FileResponse(str(archive), media_type="application/zip", filename="trim-files.zip")
+
     async def fs_transfer(request: Request, move: bool):
         body = await json_object(request)
         if body is None:
             return err("invalid_request", "request body must be a JSON object", 400)
-        src = str(body.get("source") or "").strip()
+        raw_sources = body.get("sources")
+        if isinstance(raw_sources, list):
+            sources = [str(x).strip() for x in raw_sources if str(x).strip()]
+        else:
+            one = str(body.get("source") or "").strip()
+            sources = [one] if one else []
+        src = sources[0] if sources else ""
         dst = str(body.get("destination") or "").strip()
-        if not src or not dst:
-            return err("invalid_path", "source and destination are required", 400)
-        for label, value in (("source", src), ("destination", dst)):
+        if not sources or not dst:
+            return err("invalid_path", "source(s) and destination are required", 400)
+        if len(sources) > 200:
+            return err("invalid_path", "一度に指定できるのは200件までです", 400)
+        try:
+            security.check_path(dst, cfg)
+        except (ValueError, PermissionError) as exc:
+            return err("invalid_path", "destination: " + str(exc), 400)
+        for one in sources:
             try:
-                security.check_path(value, cfg)
+                security.check_path(one, cfg)
             except (ValueError, PermissionError) as exc:
-                return err("invalid_path", label + ": " + str(exc), 400)
-        if not Path(src).exists():
-            return err("not_found", "コピー元が見つかりません: " + src, 404)
+                return err("invalid_path", "source: " + str(exc), 400)
+            if not Path(one).exists():
+                return err("not_found", "コピー元が見つかりません: " + one, 404)
         if Path(dst).exists() and not Path(dst).is_dir():
             return err("invalid_path", "destination must be a folder", 400)
         # Reject pointless transfers up front so the UI gets an immediate 400 (not a failed job).
@@ -429,7 +492,7 @@ def create_app():
         except OSError as exc:
             return err("invalid_path", str(exc), 400)
         try:
-            job = fsops.start(cfg, db, jobs, src, dst, move=move)
+            job = fsops.start(cfg, db, jobs, sources, dst, move=move)
         except RuntimeError as exc:
             return err("fs_failed", str(exc), 400)
         except OSError as exc:

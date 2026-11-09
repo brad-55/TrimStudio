@@ -87,10 +87,34 @@ def _copy_tree(job, src: Path, dst: Path):
 
 
 def start(cfg, db, jobs, source_path, destination, move=False):
-    """Copy or move a file/folder into the destination folder as a background job."""
+    """Copy or move one or more files/folders into the destination folder.
+
+    `source_path` may be a single path or a list; a batch runs as one job so the user
+    sees one progress bar and one entry in the job list.
+    """
+    sources = list(source_path) if isinstance(source_path, (list, tuple)) else [source_path]
+
     def runner(job):
-        src = Path(source_path)
         dest_root = Path(destination)
+        if len(sources) > 1:
+            dest_root.mkdir(parents=True, exist_ok=True)
+            done, failed = [], []
+            for index, one in enumerate(sources):
+                job.update(progress=min(0.99, float(index) / float(len(sources))),
+                           message="%d/%d %s" % (index + 1, len(sources),
+                                                 "移動中" if move else "コピー中"))
+                try:
+                    done.append(_transfer(job, Path(one), dest_root, move))
+                except Exception as exc:  # keep going: one bad file must not stop the batch
+                    failed.append({"path": str(one), "error": str(exc)[:200]})
+            job.update(progress=1.0, message="done")
+            if failed and not done:
+                raise RuntimeError("すべて失敗しました: " + "; ".join(f["error"] for f in failed[:3]))
+            return {"outputPaths": [d.get("outputPath") for d in done],
+                    "count": len(done), "moved": move, "failed": failed}
+        return _transfer(job, Path(sources[0]), dest_root, move)
+
+    def _transfer(job, src, dest_root, move):
         if not src.exists():
             raise RuntimeError("コピー元が見つかりません: " + str(src))
         if src.resolve() == dest_root.resolve():
