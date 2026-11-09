@@ -202,7 +202,10 @@ check("readme: start.cmd step", "start.cmd" in readme_md and "netsh advfirewall"
 check("readme: other features moved down", "## 特徴" in readme_md and "## その他の機能" in readme_md and readme_md.index("## その他の機能") > readme_md.index("## 使い方"))
 check("qwen: playback notice matches the export mode", "function exportHowText(" in qwen)
 check("qwen: video errors are told apart", "vid.error&&vid.error.code" in qwen)
-check("qwen: invalid remembered folder falls back", "function browseTo(path,fresh)" in qwen and "前回のフォルダを開けないためビデオフォルダを開きました" in qwen)
+check("qwen: invalid remembered folder falls back", "function browseTo(path,fresh,offset)" in qwen and "前回のフォルダを開けないためビデオフォルダを開きました" in qwen)
+check("qwen: explorer pages big folders", "browseMore" in qwen and "さらに表示" in qwen and "&offset=" in qwen)
+check("qwen: explorer can delete a file", "del_test" not in qwen and "/api/fs/delete" in qwen and "元に戻せません" in qwen)
+check("qwen: dates are three lines for files and folders", "<i>撮影</i>" in qwen and "<i>作成</i>" in qwen and "<i>更新</i>" in qwen)
 
 # 21) tailnet (Tailscale) access
 check("security: tailnet range helpers", "TAILNET_NETWORKS" in security_py and "def is_tailnet_ip(" in security_py and "def is_allowed_source(" in security_py)

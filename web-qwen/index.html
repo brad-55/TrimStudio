@@ -202,7 +202,8 @@ body.no-scroll{overflow:hidden;touch-action:none}
 .entry .ic{grid-area:ic;width:24px;text-align:center;font-size:15px}
 .entry .nm{grid-area:nm;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .entry .sz{grid-area:sz;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;min-width:0}
-.entry .dt{grid-area:dt;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.entry .dt{grid-area:dt;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;line-height:1.45}
+.entry .dt i{font-style:normal;display:inline-block;width:2.1em;color:var(--muted);opacity:.75}
 .sheet-foot{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .sheet-foot .inp{flex:1 1 120px;min-width:0}
 
@@ -244,6 +245,7 @@ body.no-scroll{overflow:hidden;touch-action:none}
 a.act{text-decoration:none;display:inline-flex;align-items:center}
 .job-dl{display:inline-block;margin-top:4px;font-size:11px;padding:3px 10px;border:1px solid var(--line);border-radius:999px;color:var(--blue);text-decoration:none}
 .entry .act{padding:3px 10px;border:1px solid var(--line);border-radius:999px;font-size:11px;color:var(--blue);white-space:nowrap}
+.entry .act.del{color:#e06c6c;border-color:#e06c6c55}
 .job-head{font-weight:600}
 .job-sub{opacity:.75;font-size:11px;word-break:break-all}
 .spacer{flex:1}
@@ -1194,6 +1196,16 @@ function onExportDone(r){
   const rows=[["出力パス",r.outputPath||"—"],["カット区間",(r.actualStartUs!=null?fmt(r.actualStartUs):fmt(state.inUs))+" → "+(r.actualEndUs!=null?fmt(r.actualEndUs):fmt(state.outUs))],
     ["変換",state.mode==="lossless"?"無変換":"再エンコード"]];
   if(r.actualStartUs!=null)rows.push(["実カット",(fmt(r.actualStartUs)+" → "+fmt(r.actualEndUs))]);
+  if(r.audioReencoded)rows.push(["音声","音声のみ再エンコード（映像は無変換）"]);
+  if(r.audioLeadMs!=null&&r.requestedShiftMs){
+    /* Objective check: the file itself is measured, so "the shift is/isn't in the
+       exported file" is a number instead of an impression. */
+    const lead=Math.round(r.audioLeadMs);
+    const req=Math.round(r.requestedShiftMs);
+    rows.push(["実測の音の遅れ",lead+" ms（要求 "+(req>0?"+":"")+req+" ms）"+
+      (req>0&&Math.abs(lead-req)<=40?" ✓ 書き出しに反映されています"
+        :(req>0?" ⚠ 要求と差があります":""))]);
+  }
   if(r.note)rows.push(["備考",r.note]);
   (r.warnings||[]).forEach((w,i)=>rows.push([i===0?"警告":"",w]));
   rows.forEach(([k,v])=>{const dt=document.createElement("dt");dt.textContent=k;const dd=document.createElement("dd");dd.textContent=v;kv.appendChild(dt);kv.appendChild(dd);});
@@ -1209,6 +1221,7 @@ function onExportDone(r){
 
 /* ---------- browse modal ---------- */
 let browsePath="";  // session only: the video picker starts at the Videos folder
+let browseEntries=[], browseMore=false;
 let outDir="";     // last used output destination (start folder of the output picker)
 let pickDir=false,pickLut=false;
 let pickAction=null,pickSource=null;
@@ -1236,8 +1249,15 @@ function renderRoots(roots){
     const nm=document.createElement("span");nm.className="nm";nm.textContent=rt.name||rt.path;
     b.appendChild(ic);b.appendChild(nm);b.addEventListener("click",()=>browseTo(rt.path));list.appendChild(b);});
 }
-async function browseTo(path,fresh){
-  try{const d=await api("/api/browse?path="+encodeURIComponent(path));browsePath=d.path;browseParent=d.parent;syncDrive(d.path);renderBrowse(d);}
+async function browseTo(path,fresh,offset){
+  try{const off=offset||0;
+    const d=await api("/api/browse?path="+encodeURIComponent(path)+"&offset="+off);
+    browsePath=d.path;browseParent=d.parent;
+    if(off>0&&browseMore){
+      /* appending the next page keeps the rows already on screen */
+      browseEntries=browseEntries.concat(d.entries||[]);d.entries=browseEntries;browseMore=d.truncated;
+    }else{browseEntries=d.entries||[];browseMore=d.truncated;}
+    syncDrive(d.path);renderBrowse(d);}
   catch(e){
     if(fresh&&state.config&&state.config.videosDir&&path!==state.config.videosDir){
       browsePath=state.config.videosDir;toast("前回のフォルダを開けないためビデオフォルダを開きました",true);
@@ -1259,21 +1279,24 @@ function renderBrowse(d){
     b.addEventListener("click",()=>browseTo(p));crumbs.appendChild(b);});
   const list=$("browseList");list.textContent="";
   const sortMode=($("sortSel")||{}).value||"name";
-  const rows=(d.entries||[]).slice().sort((a,b)=>{
+  const allRows=(d.entries||[]).slice().sort((a,b)=>{
     if(!!a.dir!==!!b.dir)return a.dir?-1:1;
     if(sortMode==="mtimeDesc")return (b.mtimeMs||0)-(a.mtimeMs||0);
     if(sortMode==="mtimeAsc")return (a.mtimeMs||0)-(b.mtimeMs||0);
     return String(a.name||"").localeCompare(String(b.name||""),"ja");
   });
-  rows.forEach(en=>{
+  const frag=document.createDocumentFragment();
+  allRows.forEach(en=>{
     const b=document.createElement("button");b.className="entry";
     const ic=document.createElement("span");ic.className="ic";ic.textContent=en.dir?"📁":"🎞️";
     const nm=document.createElement("span");nm.className="nm";nm.textContent=midEllipsis(en.name,44);nm.title=en.name;
     b.appendChild(ic);b.appendChild(nm);
-    if(!en.dir){const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtBytes(en.size);b.appendChild(sz);
+    if(!en.dir){const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtBytes(en.size);b.appendChild(sz);}
     const dt=document.createElement("span");dt.className="dt";
-    dt.textContent="撮 — ・更 "+fmtDate(en.mtimeMs)+"・作 "+fmtDate(en.ctimeMs);
-    dt.dataset.shotPath=en.path;dt.dataset.mt=fmtDate(en.mtimeMs);dt.dataset.ct=fmtDate(en.ctimeMs);b.appendChild(dt);}
+    dt.dataset.shotPath=en.path;dt.dataset.mt=fmtDate(en.mtimeMs);dt.dataset.ct=fmtDate(en.ctimeMs);
+    dt.dataset.isdir=en.dir?"1":"";
+    dt.innerHTML="<i>撮影</i> "+(en.dir?"—":"—")+"<br><i>作成</i> "+fmtDate(en.ctimeMs)+"<br><i>更新</i> "+fmtDate(en.mtimeMs);
+    b.appendChild(dt);
     const cp=document.createElement("span");cp.className="act";cp.textContent="コピー";
     cp.addEventListener("click",ev=>{ev.stopPropagation();pickAction="copy";pickSource=en.path;$("useDirBtn").textContent="ここにコピー";$("useDirBtn").style.display="inline-flex";toast("移動先フォルダを開いて「ここにコピー」");});
     const acts=document.createElement("span");acts.className="acts";acts.appendChild(cp);
@@ -1283,25 +1306,59 @@ function renderBrowse(d){
     const dl=document.createElement("a");dl.className="act";dl.textContent="ダウンロード";
     dl.href="/api/fs/download?path="+encodeURIComponent(en.path);dl.setAttribute("download","");
     dl.addEventListener("click",ev=>ev.stopPropagation());
-    acts.appendChild(dl);b.appendChild(acts);
+    acts.appendChild(dl);
+    if(!en.dir){
+      const rm=document.createElement("span");rm.className="act del";rm.textContent="削除";
+      rm.addEventListener("click",async ev=>{ev.stopPropagation();
+        if(!confirm("このファイルを削除しますか？\n\n"+en.name+"\n\n元に戻せません。"))return;
+        try{await api("/api/fs/delete",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({path:en.path})});toast("削除しました: "+en.name);browseTo(browsePath);}
+        catch(e){showErr("削除できませんでした: "+e.message);}});
+      acts.appendChild(rm);
+    }
+    b.appendChild(acts);
     b.addEventListener("click",()=>{if(en.dir)browseTo(en.path);else if(!pickAction)openLocal(en.path);});
-    list.appendChild(b);});
+    frag.appendChild(b);});
+  list.appendChild(frag);
+  list.appendChild(buildMoreRow(d));
   fillShotDates(list);}
-async function fillShotDates(list){
-  /* Recording dates need ffprobe: fetch lazily in chunks so the listing stays instant. */
-  const spans=Array.from(list.querySelectorAll("span.dt[data-shot-path]"));
-  for(let i=0;i<spans.length;i+=30){
-    const batch=spans.slice(i,i+30).filter(el=>el.isConnected);
-    if(!batch.length)continue;
-    let dates={};
-    try{const d=await api("/api/media-dates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paths:batch.map(el=>el.dataset.shotPath)})});dates=(d&&d.dates)||{};}catch(_){}
-    batch.forEach(el=>{
-      if(!el.isConnected)return;
-      const hit=dates[el.dataset.shotPath];
-      el.textContent="撮 "+((hit&&hit.shotAtMs!=null)?fmtDate(hit.shotAtMs):"—")
-        +"・更 "+(el.dataset.mt||"—")+"・作 "+(el.dataset.ct||"—");
-    });
+function buildMoreRow(d){
+  const wrap=document.createElement("div");wrap.className="more-row";wrap.style.cssText="padding:8px;text-align:center";
+  const shown=browseEntries.length, total=d.total!=null?d.total:shown;
+  const info=document.createElement("span");info.style.cssText="font-size:11px;color:var(--muted);margin-right:8px";
+  info.textContent=shown+" / "+total+" 件";
+  wrap.appendChild(info);
+  if(browseMore){
+    const b=document.createElement("button");b.className="btn sm";b.textContent="さらに表示";
+    b.addEventListener("click",()=>browseTo(browsePath,false,browseEntries.length));
+    wrap.appendChild(b);
   }
+  return wrap;
+}
+async function fillShotDates(list){
+  /* Recording dates need ffprobe, which is the slow part of opening a folder.
+     Stay lazy: probe only what is visible, in one batch, and let the server cache
+     by (mtime,size) so re-opening the same folder costs nothing. */
+  if(!list.style.display)list.style.display="";
+  const spans=Array.from(list.querySelectorAll("span.dt[data-shot-path]"))
+    .filter(el=>!el.dataset.isdir);      /* folders have no shooting date */
+  if(!spans.length)return;
+  /* Pick by index instead of measuring every row: getBoundingClientRect in a loop
+     forces a layout per row and made big folders crawl. */
+  const top=list.scrollTop||0;
+  const per=Math.max(1, Math.floor((list.clientHeight||600)/72));
+  const first=Math.max(0, Math.floor(top/72)-2);
+  const batch=spans.slice(first, first+per+4);
+  let dates={};
+  try{const d=await api("/api/media-dates",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({paths:batch.map(el=>el.dataset.shotPath)})});dates=(d&&d.dates)||{};}catch(_){}
+  batch.forEach(el=>{
+    if(!el.isConnected)return;
+    const hit=dates[el.dataset.shotPath];
+    el.innerHTML="<i>撮影</i> "+((hit&&hit.shotAtMs!=null)?fmtDate(hit.shotAtMs):"—")
+      +"<br><i>作成</i> "+(el.dataset.ct||"—")+"<br><i>更新</i> "+(el.dataset.mt||"—");
+  });
+  list.scrollTop=top;
 }
 async function openLocal(path){
   hideBrowse();clearErr();

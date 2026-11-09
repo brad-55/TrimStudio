@@ -137,6 +137,34 @@ def log_debug(label, **fields):
         pass
 
 
+def audio_lead_ms(fp, path, limit_ms=3000):
+    """How long the sound stays silent at the start of the file (ms).
+
+    Used to prove a positive audio shift landed: the picture starts at its own
+    first frame, so leading silence means the sound begins that much later.
+    """
+    import subprocess
+    try:
+        out = subprocess.run([str(fp).replace("ffprobe", "ffmpeg"), "-v", "error", "-i", str(path),
+                              "-map", "0:a:0", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+                             capture_output=True, creationflags=ffmpeg_tools.CREATE_NO_WINDOW).stdout
+        if not out:
+            return None
+        import array
+        samples = array.array("h")
+        samples.frombytes(out[:len(out) // 2 * 2])
+        peak = max((abs(x) for x in samples), default=0)
+        if peak <= 0:
+            return None
+        threshold = max(200, int(peak * 0.05))
+        for i, value in enumerate(samples):
+            if abs(value) > threshold:
+                return round(i * 1000.0 / 8000.0, 1)
+        return None
+    except Exception:
+        return None
+
+
 def probe_media(fp, path):
     """Stream starts, durations and mp4 edit lists of a finished file."""
     import json

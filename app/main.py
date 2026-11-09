@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -62,6 +63,10 @@ MIME = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".m
         ".rm": "application/vnd.rn-realmedia", ".rmvb": "application/vnd.rn-realmedia-vbr",
         ".f4v": "video/x-f4v", ".3g2": "video/3gpp2", ".m2t": "video/mp2t", ".mod": "video/mpeg",
         ".tod": "video/mpeg"}
+
+
+# (mtime, size) -> recording date result, so re-opening a folder is instant.
+MEDIA_DATE_CACHE = {}
 
 
 def err(code, message, status=400, detail=None):
@@ -223,14 +228,19 @@ def create_app():
         return {"roots": result}
 
     @app.get("/api/browse")
-    def browse(path: str = "", showAll: bool = False):
+    def browse(path: str = "", showAll: bool = False, limit: int = 300, offset: int = 0):
         base = path or (cfg.allowed_roots[0] if cfg.allowed_roots else str(Path.home()))
         try:
             real = security.check_path(base, cfg)
         except (ValueError, PermissionError) as exc:
             return err("invalid_path", str(exc), 400)
         entries = []
+        total = 0
+        limit = max(1, min(int(limit or 300), 2000))
+        offset = max(0, int(offset or 0))
         try:
+            # Page the listing: a phone chokes on a folder of 1000+ clips, and the
+            # user only ever looks at the top of the list first.
             for item in sorted(Path(real).iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
                 try:
                     is_dir = item.is_dir()
@@ -251,14 +261,18 @@ def create_app():
                     entry["size"] = None
                     entry["mtimeMs"] = None
                     entry["ctimeMs"] = None
-                entries.append(entry)
+                total += 1
+                if total > offset and len(entries) < limit:
+                    entries.append(entry)
         except OSError as exc:
             return err("read_failed", str(exc), 400)
         parent = str(Path(real).parent) if Path(real).parent != Path(real) else None
-        return {"path": real, "parent": parent, "entries": entries}
+        return {"path": real, "parent": parent, "entries": entries,
+                "total": total, "offset": offset, "limit": limit,
+                "truncated": offset + len(entries) < total}
 
     @app.post("/api/media-dates")
-    async def media_dates(request: Request):
+    async def media_dates(request: Request):  # noqa: D401 - see below for the body
         """Recording dates (撮影日) for listed files, probed on demand.
 
         ffprobe per file is too slow for directory listings, so the explorer
@@ -273,7 +287,8 @@ def create_app():
             return err("invalid_request", "paths must be an array", 400)
         ff, fp = ffmpeg_tools.ffmpeg_paths(cfg)
         out = {}
-        for raw in paths[:100]:
+        todo = []
+        for raw in paths[:200]:
             key = str(raw)
             try:
                 real = security.check_path(key, cfg)
@@ -281,11 +296,32 @@ def create_app():
                 out[key] = {"shotAtMs": None, "shotAtRaw": None}
                 continue
             try:
-                info = ffmpeg_tools.summarize(ffmpeg_tools.probe(fp, real, timeout=20))
-                ms, tag = ffmpeg_tools.shot_at(info)
-                out[key] = {"shotAtMs": ms, "shotAtRaw": tag}
-            except Exception:
+                st = os.stat(real)
+                stamp = (int(st.st_mtime), st.st_size)
+            except OSError:
                 out[key] = {"shotAtMs": None, "shotAtRaw": None}
+                continue
+            cached = MEDIA_DATE_CACHE.get(real)
+            if cached and cached[0] == stamp:
+                out[key] = cached[1]
+                continue
+            todo.append((key, real, stamp))
+        if todo:
+            # ffprobe per file is the slow part: run a few in parallel so a folder of
+            # 200 clips costs roughly one probe instead of 200 sequential ones.
+            def work(item):
+                key, real, stamp = item
+                try:
+                    info = ffmpeg_tools.summarize(ffmpeg_tools.probe(fp, real, timeout=20))
+                    ms, tag = ffmpeg_tools.shot_at(info)
+                    res = {"shotAtMs": ms, "shotAtRaw": tag}
+                except Exception:
+                    res = {"shotAtMs": None, "shotAtRaw": None}
+                MEDIA_DATE_CACHE[real] = (stamp, res)
+                return key, res
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                for key, res in pool.map(work, todo):
+                    out[key] = res
         return {"dates": out}
 
     @app.post("/api/fs/mkdir")
@@ -310,6 +346,34 @@ def create_app():
         except OSError as exc:
             return err("mkdir_failed", str(exc), 400)
         return {"path": str(Path(target))}
+
+    @app.post("/api/fs/delete")
+    async def fs_delete(request: Request):
+        """Delete one media file from an allowed root (the UI asks first)."""
+        body = await json_object(request)
+        if body is None:
+            return err("invalid_request", "request body must be a JSON object", 400)
+        raw = (body.get("path") or "").strip()
+        if not raw:
+            return err("invalid_path", "path is required", 400)
+        try:
+            real = security.check_path(raw, cfg)
+        except (ValueError, PermissionError) as exc:
+            return err("invalid_path", str(exc), 400)
+        target = Path(real)
+        if target.suffix.lower() not in MEDIA_EXTS:
+            # Keep the appliance to media files: never a way to wipe arbitrary data.
+            return err("invalid_path", "動画・音声ファイルのみ削除できます", 400)
+        if not target.is_file():
+            return err("not_found", "ファイルが見つかりません: " + raw, 404)
+        try:
+            size = target.stat().st_size
+            target.unlink()
+        except OSError as exc:
+            return err("delete_failed", "削除できませんでした: " + str(exc), 400)
+        # Forget the cached recording date and any sandboxed copy of the row.
+        MEDIA_DATE_CACHE.pop(str(target), None)
+        return {"deleted": True, "path": str(target), "bytes": size}
 
     @app.get("/api/fs/download")
     def fs_download(path: str = ""):

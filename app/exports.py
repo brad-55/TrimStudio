@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import cleanup, ffmpeg_tools, security
 from .media import is_hdr, streams_to_info
-from .proc import log_debug, probe_media, run_ffmpeg_job
+from .proc import audio_lead_ms, log_debug, probe_media, run_ffmpeg_job
 
 EXT_CONTAINER = {".mp4": "mp4", ".m4v": "mp4", ".mov": "mov", ".mkv": "matroska",
                  ".webm": "webm", ".ts": "matroska", ".m2ts": "matroska",
@@ -1293,6 +1293,10 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                       and not (built.get("reencodeFilterShiftMs") or 0),
                       "audioReencoded": bool((_off.get("audioDelayUs") or 0)
                                              or (built.get("reencodeFilterShiftMs") or 0)),
+                      # Measured, not assumed: how late the sound starts in the file.
+                      # This is what lets the UI say "the shift really is in here".
+                      "audioLeadMs": audio_lead_ms(fp, out),
+                      "requestedShiftMs": options.get("audioShiftMs"),
                       "warnings": built["warnings"], "fallback": built["fallback"]}
             job.update(progress=1.0, message="done")
             return result
