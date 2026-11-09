@@ -216,7 +216,14 @@ check("hold: the waiting track stays silent and parked at the head",
 check("hold: the rate stays 1", o.playbackRate === 1, o.playbackRate);
 S.stopAudition();
 check("sync: stopping clears the active flag", P.active() === false, P.active());
-check("sync: stopping turns the switch off", $("auditionToggle").checked === false);
+check("sync: stopping playback keeps the master switch ON (export still shifts)",
+      $("auditionToggle").checked === true, $("auditionToggle").checked);
+// turning the switch OFF yourself must still disable it
+$("auditionToggle").checked = false;
+$("auditionToggle").dispatch("change");
+check("toggle: turning it off by hand disables the settings",
+      $("auditionToggle").checked === false && $("audioTimingBox").hidden === true,
+      $("auditionToggle").checked + "/" + $("audioTimingBox").hidden);
 
 // --- D. a held onset is never lost (the "plays at the original timing" regression) ---
 S.stopAudition();

@@ -1796,7 +1796,11 @@ function startAudition(){
   syncAudition(true);queueAuditionSync();auditionDiag(true);
 }
 function setAuditionToggle(on){const t=$("auditionToggle"),s=$("auditionState"),b=$("audioTimingBox");if(t){t.checked=!!on;t.setAttribute('aria-expanded',on?'true':'false');}if(s)s.textContent=on?'ON':'OFF';if(b)b.hidden=!on;}
-function stopAudition(){auditionActive=false;auditionWantPlay=false;auditionDiag(true);if(auditionRaf){cancelAnimationFrame(auditionRaf);auditionRaf=0;}if(origAudio){try{origAudio.pause();origAudio.playbackRate=1;}catch(_){}}if(addedAudio){try{addedAudio.pause();addedAudio.playbackRate=1;}catch(_){}}vid.muted=false;setAuditionToggle(false);}
+function stopAudition(){auditionActive=false;auditionWantPlay=false;auditionDiag(true);if(auditionRaf){cancelAnimationFrame(auditionRaf);auditionRaf=0;}if(origAudio){try{origAudio.pause();origAudio.playbackRate=1;}catch(_){}}if(addedAudio){try{addedAudio.pause();addedAudio.playbackRate=1;}catch(_){}}vid.muted=false;
+  /* Keep the master switch as it is: stopping playback is not the same as disabling
+     the timing settings.  Clearing it here made an export silently drop the shift
+     whenever the user had previewed first (stop -> switch OFF -> export ignores it). */
+  setAuditionToggle(!!($("auditionToggle")&&$("auditionToggle").checked));}
 function toggleAudition(){if(auditionActive)stopAudition();else startAudition();}
 function setSyncStatus(t){if($("syncStatus"))$("syncStatus").textContent=t||'';}
 function firstNumber(){for(let i=0;i<arguments.length;i++){const n=parseFloat(arguments[i]);if(isFinite(n))return n;}return null;}
@@ -1833,7 +1837,7 @@ if($("audioSyncBtn"))$("audioSyncBtn").addEventListener('click',autoSync);
 if($("useSyncBtn"))$("useSyncBtn").addEventListener('click',()=>{setAudioShift('added',lastSyncShift);$("syncResult").hidden=true;toast('追加音声のずらしを設定しました');});
 if($("addedBrowseBtn"))$("addedBrowseBtn").addEventListener('click',()=>{if($("addedBrowseBtn").disabled)return;pendingAddedOpen=true;pickDir=false;pickAction=null;pickSource=null;pickLut=false;$("useDirBtn").textContent='このフォルダを使う';$("useDirBtn").style.display='none';$("browseTitle").textContent='追加する音声を選択';openBrowse();});
 if($("addedFileInput"))$("addedFileInput").addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f){pendingAddedUpload=true;doUpload(f);e.target.value='';}});
-if($("auditionToggle"))$("auditionToggle").addEventListener('change',e=>{if(e.target.checked){startAudition();setAuditionToggle(auditionActive);}else stopAudition();});
+if($("auditionToggle"))$("auditionToggle").addEventListener('change',e=>{if(e.target.checked){startAudition();setAuditionToggle(auditionActive);}else{stopAudition();setAuditionToggle(false);}});
 if($("abCompareChk"))$("abCompareChk").addEventListener('change',()=>{applyAuditionMute();if(auditionActive){syncAudition(true);queueAuditionSync();}});
 if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").addEventListener('change',()=>{applyAuditionMute();});
 vid.addEventListener('play',()=>{if(auditionActive)syncAudition(true);queueAuditionSync();});

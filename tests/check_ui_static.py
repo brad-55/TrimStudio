@@ -288,6 +288,9 @@ check("jog: pointercancel resets", "el.addEventListener('pointercancel',end);" i
 check("audio: context state watched", "auditionCtx.onstatechange" in qwen and "ctx=" in qwen)
 check("audio timing: settings hidden until ON", "id='audioTimingBox' hidden" in qwen and "b.hidden=!on" in qwen and "if(b)b.hidden=!on;" in qwen)
 check("audio timing: payload carries the switch", "o.audioTiming=!!($(\"auditionToggle\")&&$(\"auditionToggle\").checked);" in qwen)
+check("audio timing: stopping the preview must not clear the master switch",
+      "vid.muted=false;setAuditionToggle(false);}" not in qwen
+      and 'setAuditionToggle(!!($("auditionToggle")&&$("auditionToggle").checked));}' in qwen)
 check("qwen: the opened file name is shown in full", ".src-name{font-weight:700;font-size:15px;white-space:normal" in qwen and "text-overflow:ellipsis;white-space:nowrap" not in qwen.split(".src-name{")[1].split("}")[0])
 check("qwen: the player verdict beats the conservative server list", "state.directPlayable=true;" in qwen and "vid.videoWidth>0" in qwen)
 check("qwen: the play notice names the real reason", "10bit" in qwen and "再生できる場合もあります" in qwen)
