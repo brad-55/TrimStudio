@@ -265,12 +265,20 @@ def main():
     out1b = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out1b, "export +2000ms at file head succeeds: " + str(j.get("error"))[:400])
     if out1b:
+        # No earlier audio exists, so the delay is baked in with audio-only re-encode
+        # (video stays a lossless copy) -- an edit list would be ignored by players.
         _w1b = (j.get("result") or {}).get("warnings") or []
-        check(any("タイムスタンプ" in str(x) for x in _w1b),
-              "the no-room fallback warns about player dependence: " + str(_w1b)[:160])
+        check(any("音声のみ再エンコード" in str(x) for x in _w1b),
+              "the no-room case bakes the delay into the audio: " + str(_w1b)[:200])
+        _c1b = ((j.get("result") or {}).get("audio") or {}).get("contentMs") or {}
+        check(_c1b.get("audioDelay") == 2000.0, "the job result records the baked delay: " + str(_c1b))
         _a1b = [s for s in streams_of(out1b) if s.get("codec_type") == "audio"]
-        check(_a1b and abs(float(_a1b[0].get("start_time") or 0) - 2.0) < 0.25,
-              "the fallback still delays the audio start: " + str(_a1b[0].get("start_time") if _a1b else None))
+        _v1b = [s for s in streams_of(out1b) if s.get("codec_type") == "video"]
+        check(_a1b and abs(float(_a1b[0].get("start_time") or 0)) < 0.25,
+              "the baked delay keeps the audio at zero (no edit list needed): "
+              + str(_a1b[0].get("start_time") if _a1b else None))
+        check(_v1b and abs(float(_v1b[0].get("start_time") or 0)) < 0.25,
+              "the video is still untouched at zero: " + str(_v1b[0].get("start_time") if _v1b else None))
     # Re-encode route: the shift is baked in with adelay, so it works on every
     # player even at the file head (this is the always-working escape hatch).
     st, j = export(marker["id"], 500_000, 4_000_000,
@@ -345,7 +353,12 @@ def main():
         # in the content, so their start must stay at zero
         _a = [s for s in streams_of(mout) if s.get("codec_type") == "audio"]
         _v = [s for s in streams_of(mout) if s.get("codec_type") == "video"]
-        _want_start = max(0.0, shift) / 1000.0
+        # A delay is carried either in the content (cut reaches back, start stays 0)
+        # or baked in with audio-only re-encode (also start 0); only the mixed /
+        # no-room timestamp route would show a nonzero start.
+        _cm = ((j.get("result") or {}).get("audio") or {}).get("contentMs") or {}
+        _baked = (_cm.get("audioDelay") or 0) > 0 or (_cm.get("reachBack") or 0) > 0
+        _want_start = 0.0 if _baked else max(0.0, shift) / 1000.0
         check(_a and abs(float(_a[0].get("start_time") or 0) - _want_start) < 0.12,
               "a %+dms shift places the audio start at %.3fs: %s"
               % (shift, _want_start, (_a[0].get("start_time") if _a else None)))

@@ -376,6 +376,7 @@ def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=Tru
     if mode == "mute":
         return {"video": 0, "audio": 0, "added": 0, "audioStreams": 0,
                 "origShiftUs": 0, "addedShiftUs": 0}
+
     applies = mode in ("original", "bothTracks", "bothMix") and has_orig and (has_video or mode == "original")
     orig = int(audio_shift_us or 0) if applies else 0
     audio_skip = 0
@@ -520,14 +521,42 @@ def _video_cut_args(source, out, video_selected, seek_us, end_us):
     return args
 
 
-def _av_cut_args(source, out, other_selected, start_us, end_us):
+def _av_cut_args(source, out, other_selected, start_us, end_us, audio_delay_ms=None,
+                 audio_codec=None, audio_bitrate=None):
     # Audio/subtitle packets are independently decodable, so a plain output seek at
     # the true start time cuts them correctly in one pass.
     args = ["-i", long_path(source["path"]), "-ss", ffmpeg_tools.format_seconds(start_us),
             "-t", ffmpeg_tools.format_seconds(max(0, end_us - start_us))]
     for st in other_selected:
         args += ["-map", "0:" + str(st["index"])]
-    args += ["-c", "copy", "-avoid_negative_ts", "make_zero", long_path(out)]
+    if audio_delay_ms:
+        # Bake the delay into the audio with a leading silence.  A positive shift
+        # expressed as a container timestamp / edit list is ignored by several
+        # players, so the audio alone is re-encoded (the video stays untouched).
+        args += ["-af", "adelay=" + str(int(audio_delay_ms)) + ":all=1"]
+        args += ["-c:a", audio_codec or "aac"]
+        if audio_bitrate:
+            args += ["-b:a", str(int(audio_bitrate)) + "k"]
+    else:
+        args += ["-c", "copy"]
+    args += ["-avoid_negative_ts", "make_zero", long_path(out)]
+    return args
+
+
+def _delay_audio_args(src_temp, out, delay_ms, audio_codec="aac", audio_bitrate=None):
+    """Re-encode a 0-start audio temp with N ms of leading silence.
+
+    Doing this as its own pass matters: applying adelay while the cut still carries
+    the source's start offset loses ~106 ms of the padding in this ffmpeg build, so a
+    100 ms request produced no audible delay at all.  On a 0-start file the padding is
+    exact (+8.8 ms measured, all of it the source's own lead).
+    """
+    args = ["-i", long_path(src_temp), "-map", "0:a"]
+    args += ["-af", "adelay=" + str(int(delay_ms)) + ":all=1"]
+    args += ["-c:a", audio_codec]
+    if audio_bitrate:
+        args += ["-b:a", str(int(audio_bitrate)) + "k"]
+    args += ["-avoid_negative_ts", "make_zero", long_path(out)]
     return args
 
 
@@ -814,8 +843,15 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
             offsets["audioPreUs"] = shift
             offsets["audio"] = 0
         else:
-            warnings.append("音声の遅延を区間の内容に収められないため、コンテナのタイムスタンプで表現します"
-                            "（一部の再生アプリでは反映されません。区間開始より前に余裕があるか、再エンコードで書き出すと確実です）")
+            # No earlier audio to reach back to.  A container timestamp (edit list) is
+            # ignored by several players, which made the shift vanish on playback, so
+            # bake the delay into the audio instead: the audio alone is re-encoded with
+            # a leading silence while the video stays a lossless copy.
+            offsets["audioDelayUs"] = shift
+            offsets["audio"] = 0
+            warnings.append("区間の先頭に余裕がないため、音声のみ再エンコードして "
+                            + str(int(round(shift / 1000.0))) +
+                            "ms の無音を先頭に付けてずらします（映像は無変換のまま。どの再生アプリでも反映されます）")
     if mode == "added" and shift_us:
         warnings.append("追加のみモードでは元音声のずらし(audioShiftMs)は適用されません")
     if not has_video and mode in ("added", "bothTracks", "bothMix") and shift_us:
@@ -840,7 +876,7 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
         if added["headSkipUs"] >= length_us and length_us > 0:
             warnings.append("追加音声のずらしが区間長以上のため追加音声は無音になります")
 
-    if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added", "audioSkipUs", "audioPreUs")):
+    if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added", "audioSkipUs", "audioPreUs", "audioDelayUs")):
         return None
     return {"mode": mode, "offsets": offsets,
             "origShiftUs": offsets.get("origShiftUs", 0), "addedShiftUs": offsets.get("addedShiftUs", 0),
@@ -1134,6 +1170,8 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                         if am in ("original", "bothTracks") and audio_sel:
                             skip = int(offs.get("audioSkipUs") or 0)
                             pre = int(offs.get("audioPreUs") or 0)
+                            # audioDelayUs is baked in by the filter, so the cut itself
+                            # keeps the original interval.
                             a_start = built["actualStartUs"] + skip - pre
                             a_end = built["actualEndUs"] + skip - pre
                             dur = int(source.get("duration_us") or 0)
@@ -1161,6 +1199,21 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                                               cutStartUs=a_start, cutEndUs=a_end)
                                 run_ffmpeg_job(job, ff, _av_cut_args(source, atemp, audio_sel,
                                                                      a_start, a_end), total_us=total)
+                                delay_us = int(offs.get("audioDelayUs") or 0)
+                                if delay_us:
+                                    # Second pass on the 0-start temp so the padding is exact
+                                    # (see _delay_audio_args).
+                                    delayed = temp.with_name(temp.stem + ".ad" + temp.suffix)
+                                    job.update(message="re-encoding the audio delay")
+                                    run_ffmpeg_job(job, ff, _delay_audio_args(
+                                        atemp, delayed, round(delay_us / 1000.0),
+                                        REENCODE_AUDIO_CODECS.get(built["container"], "aac"),
+                                        _audio_bitrate(options, audio_sel[0])), total_us=total)
+                                    try:
+                                        atemp.unlink()
+                                    except OSError:
+                                        pass
+                                    atemp = delayed
                         if added_info is not None:
                             add_temp = temp.with_name(temp.stem + ".x" + temp.suffix)
                             job.update(message="re-encoding the added audio" if added_info["reencode"]
@@ -1230,10 +1283,17 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                                               "added": round((_off.get("added") or 0) / 1000.0, 3)},
                                 "contentMs": {"advance": round((_off.get("audioSkipUs") or 0) / 1000.0, 3),
                                               "reachBack": round((_off.get("audioPreUs") or 0) / 1000.0, 3),
+                                              "audioDelay": round((_off.get("audioDelayUs") or 0) / 1000.0, 3),
                                               "filterMs": round((built.get("reencodeFilterShiftMs") or 0) / 1000.0, 3)},
                                 "ignored": options.get("audioTimingIgnored") or []},
                       "excluded": [st.get("index") for st in built["excluded"]],
-                      "lossless": not reencode, "warnings": built["warnings"], "fallback": built["fallback"]}
+                      # The audio may have been re-encoded just to bake in the shift
+                      # (video still copied); say so instead of claiming "無変換".
+                      "lossless": not reencode and not (_off.get("audioDelayUs") or 0)
+                      and not (built.get("reencodeFilterShiftMs") or 0),
+                      "audioReencoded": bool((_off.get("audioDelayUs") or 0)
+                                             or (built.get("reencodeFilterShiftMs") or 0)),
+                      "warnings": built["warnings"], "fallback": built["fallback"]}
             job.update(progress=1.0, message="done")
             return result
         except Exception:

@@ -350,16 +350,18 @@ def main():
     check(exports._ms_us(None) == 0 and exports._ms_us("junk") == 0, "junk converts to zero")
     _w = []
     _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": 1500}, 0, 4_000_000, _w)
-    check(_p["offsets"]["audio"] == 1_500_000 and _p["offsets"].get("audioPreUs") == 0
-          and any("タイムスタンプ" in x for x in _w),
-          "a positive shift without earlier audio falls back to timestamps with a warning: " + str((_p["offsets"], _w)))
+    check(_p["offsets"]["audio"] == 0 and _p["offsets"].get("audioPreUs") == 0
+          and _p["offsets"].get("audioDelayUs") == 1_500_000
+          and any("音声のみ再エンコード" in x for x in _w),
+          "a positive shift without earlier audio bakes the delay into the audio: " + str((_p["offsets"], _w)))
     _late = [{"index": 0, "type": "video", "codec": "h264"},
              {"index": 1, "type": "audio", "codec": "aac", "channels": 2, "sample_rate": 48000, "start_time": "3.000000"}]
     _w = []
     _p = exports._audio_plan(_FakeDB(_row_aac), _late, "mp4", {"audioShiftMs": 1500}, 4_000_000, 8_000_000, _w)
-    check(_p["offsets"]["audio"] == 1_500_000 and _p["offsets"].get("audioPreUs") == 0
-          and any("タイムスタンプ" in x for x in _w),
-          "a shift reaching before the first audio packet falls back (no silent no-op): " + str((_p["offsets"], _w)))
+    check(_p["offsets"]["audio"] == 0 and _p["offsets"].get("audioPreUs") == 0
+          and _p["offsets"].get("audioDelayUs") == 1_500_000
+          and any("音声のみ再エンコード" in x for x in _w),
+          "a shift reaching before the first audio packet bakes the delay (no silent no-op): " + str((_p["offsets"], _w)))
     _w = []
     _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": -1500}, 0, 4_000_000, _w)
     check(_p["offsets"]["video"] == 0 and _p["offsets"]["audio"] == 0
@@ -372,9 +374,10 @@ def main():
           "a positive shift with room is carried in the content: " + str(_p["offsets"]))
     _w = []
     _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": 1500}, 0, 4_000_000, _w)
-    check(_p["offsets"]["audio"] == 1_500_000 and _p["offsets"].get("audioPreUs") == 0
-          and any("タイムスタンプ" in x for x in _w),
-          "a positive shift without room falls back to timestamps with a warning: " + str((_p["offsets"], _w)))
+    check(_p["offsets"]["audio"] == 0 and _p["offsets"].get("audioPreUs") == 0
+          and _p["offsets"].get("audioDelayUs") == 1_500_000
+          and any("音声のみ再エンコード" in x for x in _w),
+          "a positive shift without room bakes the delay into the audio: " + str((_p["offsets"], _w)))
 
     _w = []
     _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt), 0, 4_000_000, _w)
