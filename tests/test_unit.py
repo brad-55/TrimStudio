@@ -374,6 +374,37 @@ def main():
         check(False, "an incompatible codec without the checkbox is refused")
     except ValueError:
         check(True, "an incompatible codec without the checkbox is refused")
+
+    # --- db migration columns and job pruning (audit #10, #8) ---
+    import tempfile as _tf  # noqa: E402
+    from app.db import Database  # noqa: E402
+    _tmpdir = _tf.mkdtemp(prefix="trimdb")
+    try:
+        _db = Database(os.path.join(_tmpdir, "t.db"))
+        check("meta_json" in {x["name"] for x in _db.query("PRAGMA table_info(sources)")},
+              "sources migration adds meta_json")
+        check("error" in {x["name"] for x in _db.query("PRAGMA table_info(jobs)")},
+              "jobs migration adds error")
+        for i in range(5):
+            _db.execute("INSERT INTO jobs (id, created_at, updated_at) VALUES (?,?,?)",
+                        ("j%d" % i, float(i), float(i)))
+        _db.prune_jobs(keep=3)
+        check({x["id"] for x in _db.query("SELECT id FROM jobs")} == {"j2", "j3", "j4"},
+              "prune_jobs keeps the newest rows")
+    finally:
+        shutil.rmtree(_tmpdir, ignore_errors=True)
+
+    # --- host allowlist (audit #10) ---
+    check(security.host_allowed("localhost", set()) is True, "localhost is allowed")
+    check(security.host_allowed("", set()) is False, "empty host is rejected")
+    check(security.host_allowed("unknown.example.com", set(), set()) is False,
+          "unknown names are rejected without DNS resolution")
+    check(security.host_allowed("notebook.ts.net", set(), set()) is True,
+          "tailnet MagicDNS names are allowed")
+    check(security.host_allowed("192.168.1.5", {"192.168.1.5"}) is True,
+          "listed LAN IPs are allowed")
+    check(security.host_allowed("8.8.8.8", set(), set()) is False,
+          "public IPs are rejected")
     print("unit checks: OK")
     return 0
 

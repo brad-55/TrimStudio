@@ -52,8 +52,8 @@ def known_videos_dir():
                 ctypes.windll.ole32.CoTaskMemFree(ptr)
                 if value:
                     return value
-        except Exception:
-            pass
+        except Exception as exc:
+            print("videos dir fallback to home: " + repr(exc))
     return str(Path.home() / "Videos")
 
 

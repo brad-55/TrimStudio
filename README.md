@@ -277,6 +277,7 @@ netsh advfirewall firewall add rule name="Trim 8003" dir=in action=allow protoco
 - ファイル閲覧とダウンロードは、許可されたフォルダ配下の**動画・音声拡張子だけ**に限定します。別の場所へ不正に移動できないよう安全を保ちます（realpath による検証）。
 - ffmpeg は、システムを安全に保つため shell を介さず引数配列で起動します。
 - より強く制限したい場合は `config.json` の `strongMode` を `true` に設定してください。起動時に画面へ表示されるトークンを入力するまで操作できなくなります。
+- 通常モードでは `GET /api/token` がトークンを返します（LAN 内からの取得が前提です。トークンは CSRF・同一オリジン・Host 検査と組み合わせて使われます）。
 
 ## 設定（config.json）
 

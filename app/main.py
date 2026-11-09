@@ -176,6 +176,10 @@ def create_app():
         proc.prune_logs()
     except Exception:
         pass
+    try:
+        db.prune_jobs()
+    except Exception as exc:
+        print("job history prune skipped: " + repr(exc))
 
     @app.get("/api/health")
     def health():
@@ -601,8 +605,8 @@ def create_app():
                 if jobs.is_output_reserved(explicit_out):
                     return err("output_in_use",
                                "同じ出力先を使用中の処理があります。完了を待つか、別のファイル名を指定してください", 409)
-            except Exception:
-                pass
+            except Exception as exc:
+                print("output reservation check failed, proceeding: " + repr(exc))
         try:
             job = exports.start_export(cfg, db, jobs, source, start_us, end_us, options)
         except ValueError as exc:

@@ -139,3 +139,8 @@ class Database:
 
     def list_jobs(self, limit=50):
         return self.query("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,))
+
+    def prune_jobs(self, keep=500):
+        """Drop job history beyond the newest `keep` rows (unbounded growth)."""
+        self.execute("DELETE FROM jobs WHERE id NOT IN (SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?)",
+                     (keep,))

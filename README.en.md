@@ -267,6 +267,7 @@ Times are written in readable form, e.g. `0s` / `1m30s` / `1h02m03s`.
 - File browsing and downloads are limited to **video and audio extensions** under the allowed folders, verified with realpath so files cannot be pulled from elsewhere.
 - ffmpeg is launched with an argument array (no shell) for safety.
 - For stricter operation, set `strongMode` to `true` in `config.json`: nothing can be done until the token shown at startup is entered.
+- In normal mode, `GET /api/token` returns the token (LAN-only access is assumed. The token works together with CSRF, same-origin and Host checks).
 
 ## Settings (config.json)
 

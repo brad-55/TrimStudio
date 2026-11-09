@@ -78,8 +78,8 @@ def open_source(cfg, db, jobs, path):
                 rec["video_spec"] = existing[0].get("video_spec") or rec.get("video_spec")
                 rec["created_at"] = existing[0].get("created_at") or time.time()
                 db.upsert_source(rec)
-            except Exception:
-                pass
+            except Exception as exc:
+                print("metadata refresh skipped: " + repr(exc))
         return db.get_source(source_id)
     source_id = uuid.uuid4().hex
     rec = _record_from_info(source_id, real, Path(real).name, "local", info)

@@ -44,6 +44,8 @@ def main():
     print("  local: http://127.0.0.1:" + str(port) + "/")
     if cfg.get("strongMode"):
         print("  strongMode: enter this token in the UI -> " + security.load_or_create_token(cfg.data_dir))
+    # Trim assumes a single process: the job semaphore, output-path reservation
+    # and SSE state all live in memory. Do not run with multiple workers.
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
     if host in ("0.0.0.0", "::"):
