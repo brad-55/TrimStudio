@@ -1434,7 +1434,9 @@ function ensureAudioGraph(){
   const Ctx=window.AudioContext||window.webkitAudioContext;
   if(!Ctx)return;
   try{
-    if(!auditionCtx)auditionCtx=new Ctx();
+    /* 'interactive' keeps the WebAudio output latency as low as the browser allows;
+       the default can add tens of ms, which showed up as a sync error in the preview. */
+    if(!auditionCtx){try{auditionCtx=new Ctx({latencyHint:'interactive'});}catch(_){auditionCtx=new Ctx();}}
     origNode=auditionCtx.createMediaElementSource(origAudio);
     const pan=auditionCtx.createStereoPanner?auditionCtx.createStereoPanner():null;
     if(pan){origPan=pan;origPan.pan.value=splitLR?-0.9:0;origNode.connect(origPan);origPan.connect(auditionCtx.destination);}
@@ -1457,6 +1459,11 @@ function auditionDiag(force){
   if(vid.paused)extra+=" [動画を再生すると聴こえます]";
   const dur=(typeof vid.duration==="number"&&isFinite(vid.duration))?vid.duration:0;
   if(dur>0&&Math.abs(state.audioShiftMs||0)/1000>dur)extra+=" [ずらしが動画の長さを超えているため無音です]";
+  /* Show the live audio-vs-video error so the preview can be judged with a number. */
+  if(auditionDelta!=null&&isFinite(auditionDelta)){
+    const ms=Math.round(auditionDelta*1000);
+    extra+=" | 映像とのずれ "+((ms>0?"+":"")+ms)+"ms";
+  }
   el.textContent="試聴中 元"+msLabel(state.audioShiftMs||0)+" 追加"+msLabel(state.addedShiftMs||0)+" | orig["+s(o)+"] added["+s(a)+"] muted="+(vid.muted?'y':'n')+" ctx="+(auditionCtx?auditionCtx.state:'-')+extra+" | "+TRIM_BUILD;
 }
 
@@ -1659,6 +1666,7 @@ function ensureAuditionAudio(){if(!origAudio){origAudio=new Audio();origAudio.pr
 function queueAuditionSync(){if(!auditionActive)return;if(!auditionRaf)auditionRaf=requestAnimationFrame(auditionTick);}
 function auditionTick(){auditionRaf=0;if(!auditionActive)return;syncAudition();auditionDiag();if(auditionActive)auditionRaf=requestAnimationFrame(auditionTick);}
 let auditionWantPlay=false;
+let auditionDelta=null;   /* last measured audio-vs-video offset in seconds */
 function syncAudition(force){
   if(!auditionActive||!state.source)return;
   ensureAuditionAudio();
@@ -1672,16 +1680,21 @@ function syncAudition(force){
     if(!el||el.readyState<1||el.seeking)return false;   /* not ready: try again next frame */
     if(el.playbackRate!==1)el.playbackRate=1;
     const d=(el.currentTime||0)-target;
-    if(!(hardset||force||Math.abs(d)>0.5))return true;  /* already aligned */
+    /* 0.5s of slop used to be tolerated here, so a 100 ms setting played back with
+       up to half a second of error -- the preview looked right only for big shifts.
+       Keep the correction tight; the cooldown below stops seek churn. */
+    auditionDelta=d;
+    if(!(hardset||force||Math.abs(d)>0.09))return true;  /* already aligned */
     const now=Date.now();
     const last=el.dataset.seekTarget;
     /* A different target (a new shift, or the onset of a held track) must never be
        swallowed by the churn guard, otherwise the audio keeps playing at the old,
        unshifted position. The guard only throttles repeats of the SAME target. */
     const same=last!==undefined&&Math.abs(Number(last)-target)<0.05;
-    if(same&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<400)return false;
+    if(same&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<220)return false;
     el.dataset.seekTarget=String(target);
     el.dataset.seekAt=String(now);
+    auditionDelta=d;
     try{el.currentTime=target;}catch(_){return false;}
     return true;
   };

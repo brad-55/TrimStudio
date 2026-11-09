@@ -244,7 +244,9 @@ check("audio: settings persistence", "audioMode:modeRadio?modeRadio.value" in qw
 check("audio: export payload", "o.audioMode=am" in qwen and "o.addedSourceId=" in qwen and "o.addedShiftMs=" in qwen and "o.addedStartMs=" in qwen and "o.addedReencode=" in qwen)
 check("audio: no media reload on start", "origAudio.getAttribute('data-src')!==audSrc" in qwen and "addedAudio.getAttribute('data-src')!==ap" in qwen)
 check("audio: never seeks while loading", "el.readyState<1||el.seeking" in qwen)
-check("audio: hard seek only on a real desync", "Math.abs(d)>0.5" in qwen and "const now=Date.now();" in qwen and "now-Number(el.dataset.seekAt)<400" in qwen)
+check("audio: preview dead band is tight (100ms shifts are corrected)",
+      "Math.abs(d)>0.5" not in qwen and "Math.abs(d)>0.09" in qwen and "now-Number(el.dataset.seekAt)<220" in qwen)
+check("audio: preview shows the live sync error", "映像とのずれ" in qwen and "auditionDelta" in qwen)
 check("audio: playback rate is never modulated", "1+k" not in qwen and "Math.max(-0.01,Math.min(0.01" not in qwen and "if(el.playbackRate!==1)el.playbackRate=1;" in qwen)
 check("audio: the preview UI removals", "auditionBar" not in qwen and "barStopBtn" not in qwen and "data-bar" not in qwen and "abHoldBtn" not in qwen and "testToneBtn" not in qwen and "playTestTone" not in qwen and "auditionBtn" not in qwen)
 check("audio: L/R split capability kept", "function ensureAudioGraph(" in qwen and "createStereoPanner" in qwen)
