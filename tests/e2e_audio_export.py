@@ -46,13 +46,13 @@ def wait_job(jid, timeout=300):
     return {"status": "timeout"}
 
 
-def export(src_id, a, b, options):
+def export(src_id, a, b, options, mode="lossless"):
     # the source may still be indexing: the range only lands on the keyframes once the
     # index exists, so retry until the requested start is honoured
     j = {}
     for _ in range(30):
         st, r = call("POST", "/api/exports", {"sourceId": src_id, "startUs": a, "endUs": b,
-                                              "mode": "lossless", "options": options})
+                                              "mode": mode, "options": options})
         if st != 200:
             return st, r
         j = wait_job(r.get("jobId"))
@@ -258,6 +258,34 @@ def main():
         # nothing for a player to normalise away.  The content-level oracle below
         # proves the sound itself moved.
         print("   starts:", {s["codec_type"]: s.get("start_time") for s in ast + vst})
+    # No room to reach back (the interval starts at zero): the delay falls back
+    # to container timestamps, and the export says so instead of silently
+    # producing an unshifted file.
+    st, j = export(vid["id"], 0, 4_000_000, {"audioShiftMs": 2000})
+    out1b = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    check(j.get("status") == "done" and out1b, "export +2000ms at file head succeeds: " + str(j.get("error"))[:400])
+    if out1b:
+        _w1b = (j.get("result") or {}).get("warnings") or []
+        check(any("タイムスタンプ" in str(x) for x in _w1b),
+              "the no-room fallback warns about player dependence: " + str(_w1b)[:160])
+        _a1b = [s for s in streams_of(out1b) if s.get("codec_type") == "audio"]
+        check(_a1b and abs(float(_a1b[0].get("start_time") or 0) - 2.0) < 0.25,
+              "the fallback still delays the audio start: " + str(_a1b[0].get("start_time") if _a1b else None))
+    # Re-encode route: the shift is baked in with adelay, so it works on every
+    # player even at the file head (this is the always-working escape hatch).
+    st, j = export(marker["id"], 500_000, 4_000_000,
+                   {"audioShiftMs": 800, "audioTiming": True}, mode="reencode")
+    outR = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    check(j.get("status") == "done" and outR, "reencode +800ms export succeeds: " + str(j.get("error"))[:400])
+    if outR:
+        _auR = (j.get("result") or {}).get("audio") or {}
+        check(_auR.get("contentMs", {}).get("filterMs") == 800.0,
+              "the job result records the re-encoded shift: " + str(_auR)[:200])
+        check(any("再エンコード" in str(x) for x in ((j.get("result") or {}).get("warnings") or [])),
+              "the re-encoded shift warns about the audio re-encode")
+        _bp = beep_time(outR)
+        check(_bp is not None and abs(_bp - 1.3) < 0.15,
+              "the re-encoded sound really moves by +800ms at the content level: measured %s" % _bp)
     st, j = export(vid["id"], 2_000_000, 6_000_000, {"audioShiftMs": -2000})
     out2 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out2, "export -2000ms succeeds: " + str(j.get("error"))[:400])

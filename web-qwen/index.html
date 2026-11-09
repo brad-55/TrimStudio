@@ -585,7 +585,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
       <span class="spacer"></span>
       <button class="btn sm ghost" id="closeBrowse">閉じる</button>
     </div>
-    <div class="row" style="padding:8px 14px;border-bottom:1px solid var(--line)"><select class="inp" id="driveSel" title="ドライブを切り替え"></select></div>
+    <div class="row" style="padding:8px 14px;border-bottom:1px solid var(--line)"><select class="inp" id="driveSel" title="ドライブを切り替え"></select><select class="inp" id="sortSel" title="並び替え"><option value="name">名前順</option><option value="mtimeDesc">更新が新しい順</option><option value="mtimeAsc">更新が古い順</option></select></div>
     <div class="crumbs" id="crumbs"></div>
     <div class="list" id="browseList"></div>
     <div class="sheet-foot">
@@ -1258,7 +1258,14 @@ function renderBrowse(d){
     const b=document.createElement("button");b.textContent=seg;
     b.addEventListener("click",()=>browseTo(p));crumbs.appendChild(b);});
   const list=$("browseList");list.textContent="";
-  (d.entries||[]).forEach(en=>{
+  const sortMode=($("sortSel")||{}).value||"name";
+  const rows=(d.entries||[]).slice().sort((a,b)=>{
+    if(!!a.dir!==!!b.dir)return a.dir?-1:1;
+    if(sortMode==="mtimeDesc")return (b.mtimeMs||0)-(a.mtimeMs||0);
+    if(sortMode==="mtimeAsc")return (a.mtimeMs||0)-(b.mtimeMs||0);
+    return String(a.name||"").localeCompare(String(b.name||""),"ja");
+  });
+  rows.forEach(en=>{
     const b=document.createElement("button");b.className="entry";
     const ic=document.createElement("span");ic.className="ic";ic.textContent=en.dir?"📁":"🎞️";
     const nm=document.createElement("span");nm.className="nm";nm.textContent=midEllipsis(en.name,44);nm.title=en.name;
@@ -1558,6 +1565,7 @@ $("closeBrowse").addEventListener("click",closeBrowseModal);
 function hideBrowse(){$("browseModal").classList.remove("show");document.body.classList.remove("no-scroll");pickDir=false;pickAction=null;pickSource=null;$("useDirBtn").textContent="このフォルダを使う";$("useDirBtn").style.display="none";}
 function closeBrowseModal(){hideBrowse();}
 $("driveSel").addEventListener("change",e=>{if(e.target.value)browseTo(e.target.value);});
+if($("sortSel"))$("sortSel").addEventListener("change",()=>{if(browsePath)browseTo(browsePath);});
 $("upBtn").addEventListener("click",()=>{if(browseParent)browseTo(browseParent);});
 $("goPath").addEventListener("click",()=>{const p=$("pathInput").value.trim();if(p)browseTo(p);});
 $("fileInput").addEventListener("change",e=>{if(e.target.files[0])doUpload(e.target.files[0]);});
