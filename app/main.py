@@ -242,14 +242,51 @@ def create_app():
                     continue
                 entry = {"name": item.name, "path": str(item), "dir": is_dir}
                 try:
-                    entry["size"] = item.stat().st_size if not is_dir else None
+                    st = item.stat()
+                    entry["size"] = st.st_size if not is_dir else None
+                    # mtime = 更新日, ctime = 作成日 (Windows).  One stat call.
+                    entry["mtimeMs"] = int(st.st_mtime * 1000)
+                    entry["ctimeMs"] = int(st.st_ctime * 1000)
                 except OSError:
                     entry["size"] = None
+                    entry["mtimeMs"] = None
+                    entry["ctimeMs"] = None
                 entries.append(entry)
         except OSError as exc:
             return err("read_failed", str(exc), 400)
         parent = str(Path(real).parent) if Path(real).parent != Path(real) else None
         return {"path": real, "parent": parent, "entries": entries}
+
+    @app.post("/api/media-dates")
+    async def media_dates(request: Request):
+        """Recording dates (撮影日) for listed files, probed on demand.
+
+        ffprobe per file is too slow for directory listings, so the explorer
+        fetches these lazily after rendering rows (mtime/ctime come with
+        /api/browse itself).  Best effort: failures yield nulls.
+        """
+        body = await json_object(request)
+        if body is None:
+            return err("invalid_request", "request body must be a JSON object", 400)
+        paths = body.get("paths") or []
+        if not isinstance(paths, list):
+            return err("invalid_request", "paths must be an array", 400)
+        ff, fp = ffmpeg_tools.ffmpeg_paths(cfg)
+        out = {}
+        for raw in paths[:100]:
+            key = str(raw)
+            try:
+                real = security.check_path(key, cfg)
+            except (ValueError, PermissionError, OSError):
+                out[key] = {"shotAtMs": None, "shotAtRaw": None}
+                continue
+            try:
+                info = ffmpeg_tools.summarize(ffmpeg_tools.probe(fp, real, timeout=20))
+                ms, tag = ffmpeg_tools.shot_at(info)
+                out[key] = {"shotAtMs": ms, "shotAtRaw": tag}
+            except Exception:
+                out[key] = {"shotAtMs": None, "shotAtRaw": None}
+        return {"dates": out}
 
     @app.post("/api/fs/mkdir")
     async def make_directory(request: Request):
@@ -820,6 +857,12 @@ def public_source(rec):
     kind = "video" if has_video else ("audio" if any(st.get("type") == "audio" for st in streams) else "other")
     video_stream = next((st for st in streams if st.get("type") == "video" and not st.get("attached_pic")), None)
     audio_stream = next((st for st in streams if st.get("type") == "audio"), None)
+    shot_ms, shot_raw = ffmpeg_tools.shot_at({"meta": meta, "streams": streams})
+    try:
+        fst = os.stat(rec["path"])
+        file_ctime_ms, file_mtime_ms = int(fst.st_ctime * 1000), int(fst.st_mtime * 1000)
+    except OSError:
+        file_ctime_ms, file_mtime_ms = None, None
     return {
         "bitRate": meta.get("bit_rate"),
         "videoBitRate": (video_stream or {}).get("bit_rate"),
@@ -830,6 +873,8 @@ def public_source(rec):
         "width": rec.get("width"), "height": rec.get("height"), "fps": rec.get("fps"),
         "videoCodec": rec.get("video_codec"), "audioCodec": rec.get("audio_codec"),
         "pixFmt": rec.get("pix_fmt"), "indexState": rec.get("index_state"),
+        "shotAtMs": shot_ms, "shotAtRaw": shot_raw,
+        "fileCtimeMs": file_ctime_ms, "fileMtimeMs": file_mtime_ms,
         "streams": json.loads(rec.get("streams_json") or "[]"),
     }
 

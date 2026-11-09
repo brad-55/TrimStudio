@@ -122,6 +122,51 @@ def probe(fp, path, timeout=180):
     return json.loads(out)
 
 
+def parse_shot_at_ms(raw):
+    """Parse a media creation_time tag to epoch ms (撮影日).  Returns None when unknown."""
+    if not raw or not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        import datetime
+        iso = text.replace("Z", "+00:00") if text.endswith(("Z", "z")) else text
+        try:
+            dt = datetime.datetime.fromisoformat(iso)
+        except ValueError:
+            dt = None
+        if dt is None:
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S",
+                        "%Y-%m-%d", "%Y/%m/%d", "%Y:%m:%d %H:%M:%S"):
+                try:
+                    dt = datetime.datetime.strptime(text[:19], fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def shot_at(info):
+    """(ms, raw) recording date from a summarize() dict: format tags, then streams."""
+    cands = []
+    meta = info.get("meta") or {}
+    cands.append((meta.get("tags") or {}).get("creation_time"))
+    for st in info.get("streams") or []:
+        cands.append((st.get("tags") or {}).get("creation_time"))
+    for raw in cands:
+        ms = parse_shot_at_ms(raw)
+        if ms is not None:
+            return ms, raw
+    return None, None
+
+
 def parse_fraction(value):
     if not value or value == "0/0":
         return None

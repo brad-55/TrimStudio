@@ -3,6 +3,7 @@ import ctypes
 import json
 import os
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -257,6 +258,9 @@ def output_path_for(source, start_us, end_us, container, explicit=None, has_vide
         tail = "trim-" + time_tag(start_us) + "-" + time_tag(end_us)
     else:
         tail = export_tags(options, start_us, end_us, has_video)
+    # Export execution time (local): every generated file carries when it was
+    # made.  Explicit file paths given by the user are respected as-is.
+    tail += "_" + time.strftime("%Y%m%d-%H%M")
     # sanitize_name already caps the original name at 80 chars and the tags stay short,
     # so the readable settings always survive; _fit_length below is the final guard.
     name = stem + "_" + tail + "." + ext
@@ -353,6 +357,12 @@ def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=Tru
     pure packet copy (the cut simply starts |shift| later).  The audio filter route
     (bothMix) does the same thing with atrim.  Packets are never re-encoded.
 
+    A positive shift is likewise carried in the CONTENT when possible: the audio
+    cut reaches back (|shift| earlier).  Container timestamps / edit lists are
+    ignored by some players, which made a timestamp-only delay inaudible there.
+    Only when the interval starts before the shift (no room to reach back)
+    do we express a positive delay with a mux offset, with a warning.
+
     Plan 0.8b: the original shift only exists when the original audio is part of the
     output AND a reference stream anchors it (the video; or, for the audio-only
     "original" route, the audio stream itself carries the signed shift).  The added
@@ -384,7 +394,7 @@ def audio_offsets(mode, audio_shift_us, added_shift_us, has_added, has_video=Tru
         added = video + max(0, added_shift_us or 0)
     streams = {"original": 1, "added": 1, "bothTracks": 2, "bothMix": 1}.get(mode, 1)
     return {"video": video, "audio": audio, "added": added, "audioStreams": streams,
-            "audioSkipUs": audio_skip,
+            "audioSkipUs": audio_skip, "audioPreUs": 0,
             "origShiftUs": orig, "addedShiftUs": int(added_shift_us or 0) if (has_added and mode in ("added", "bothTracks", "bothMix")) else 0}
 
 
@@ -789,6 +799,16 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
 
     offsets = audio_offsets(mode, shift_us, added_shift_us, added is not None,
                             has_video=has_video, has_orig=orig_audio is not None)
+    if (mode in ("original", "bothTracks") and has_video and orig_audio is not None
+            and (offsets.get("audio") or 0) > 0):
+        # Carry a positive delay in the content when the interval leaves room:
+        # cut the audio from |shift| earlier so every player hears it.
+        if start_us >= offsets["audio"]:
+            offsets["audioPreUs"] = offsets["audio"]
+            offsets["audio"] = 0
+        else:
+            warnings.append("区間の開始より前の余裕がないため、音声の遅延をコンテナのタイムスタンプで表現します"
+                            "（一部の再生アプリでは反映されません）")
     if mode == "added" and shift_us:
         warnings.append("追加のみモードでは元音声のずらし(audioShiftMs)は適用されません")
     if not has_video and mode in ("added", "bothTracks", "bothMix") and shift_us:
@@ -804,8 +824,6 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
             warnings.append("追加音声のみ再エンコードします（「音声のみ再エンコード」が ON のため）")
         else:
             warnings.append("追加音声のみ再エンコードします（このコンテナには無変換で入れられないため）")
-    if length_us > 0 and abs(offsets.get("origShiftUs") or 0) >= length_us:
-        warnings.append("元音声のずらしが区間長以上のため元音声は無音になります")
     if added is not None:
         dur = int((added["source"] or {}).get("duration_us") or 0)
         avail = max(0, dur - added["startUs"] - (0 if mode == "bothMix" else added["headSkipUs"]))
@@ -815,7 +833,7 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
         if added["headSkipUs"] >= length_us and length_us > 0:
             warnings.append("追加音声のずらしが区間長以上のため追加音声は無音になります")
 
-    if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added", "audioSkipUs")):
+    if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added", "audioSkipUs", "audioPreUs")):
         return None
     return {"mode": mode, "offsets": offsets,
             "origShiftUs": offsets.get("origShiftUs", 0), "addedShiftUs": offsets.get("addedShiftUs", 0),
@@ -1066,8 +1084,9 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                     else:
                         if am in ("original", "bothTracks") and audio_sel:
                             skip = int(offs.get("audioSkipUs") or 0)
-                            a_start = built["actualStartUs"] + skip
-                            a_end = built["actualEndUs"] + skip
+                            pre = int(offs.get("audioPreUs") or 0)
+                            a_start = built["actualStartUs"] + skip - pre
+                            a_end = built["actualEndUs"] + skip - pre
                             dur = int(source.get("duration_us") or 0)
                             if skip and dur and a_start >= dur:
                                 # The advanced interval lies entirely past EOF: keep
@@ -1087,6 +1106,9 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                                             "音声を " + str(round(skip / 1000.0)) + "ms 進めるため末尾が素材の終端に達しました"
                                             "（音声が少し短くなります）")
                                     log_debug("audio_advance", job=job.id, skipUs=skip,
+                                              cutStartUs=a_start, cutEndUs=a_end)
+                                if pre:
+                                    log_debug("audio_delay_content", job=job.id, preUs=pre,
                                               cutStartUs=a_start, cutEndUs=a_end)
                                 run_ffmpeg_job(job, ff, _av_cut_args(source, atemp, audio_sel,
                                                                      a_start, a_end), total_us=total)
@@ -1157,6 +1179,8 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                                 "appliedMs": {"video": round((_off.get("video") or 0) / 1000.0, 3),
                                               "audio": round((_off.get("audio") or 0) / 1000.0, 3),
                                               "added": round((_off.get("added") or 0) / 1000.0, 3)},
+                                "contentMs": {"advance": round((_off.get("audioSkipUs") or 0) / 1000.0, 3),
+                                              "reachBack": round((_off.get("audioPreUs") or 0) / 1000.0, 3)},
                                 "ignored": options.get("audioTimingIgnored") or []},
                       "excluded": [st.get("index") for st in built["excluded"]],
                       "lossless": not reencode, "warnings": built["warnings"], "fallback": built["fallback"]}

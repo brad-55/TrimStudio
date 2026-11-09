@@ -223,36 +223,40 @@ def main():
     out1 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
     check(j.get("status") == "done" and out1, "export +2000ms succeeds: " + str(j.get("error"))[:400])
     _au1 = (j.get("result") or {}).get("audio") or {}
-    check(_au1.get("appliedMs", {}).get("audio") == 2000.0 and not _au1.get("ignored"),
-          "the job result reports the applied shift for +2000ms: " + str(_au1)[:200])
+    check(_au1.get("contentMs", {}).get("reachBack") == 2000.0 and not _au1.get("ignored"),
+          "the job result reports the content delay for +2000ms: " + str(_au1)[:200])
     if out1:
         # Independent oracle: the source's own packet grid is measured straight from the
-        # file (no seek), never by re-running the pipeline's cut.  Boundary spec (see
-        # docs/TEST_DESIGN.md): the export starts at the frame that *contains* the in
-        # point, so it may carry one priming packet at the head, and no packet at or
-        # after the out point.  The internal time base is re-anchored (make_zero), so the
-        # checks are the count, the grid spacing and the placement -- not absolute source PTS.
+        # file (no seek), never by re-running the pipeline's cut.  A positive delay is
+        # carried in the CONTENT (cut from [start-shift, end-shift)) so every player
+        # hears it -- not in container timestamps, which some players ignore.
+        # Boundary spec (see docs/TEST_DESIGN.md): the export starts at the frame that
+        # *contains* the in point, so it may carry one priming packet at the head, and
+        # no packet at or after the out point.
         src = packet_times(vpath, "0:a")
-        exact = [t0 for t0 in src if 2.0 - 1e-6 <= t0 < 6.0 - 1e-6]
+        exact = [t0 for t0 in src if 0.0 - 1e-6 <= t0 < 4.0 - 1e-6]
         got = packet_times(out1, "0:a")
         check(len(exact) <= len(got) <= len(exact) + 1,
-              "boundary: packet count matches the source interval (+1 priming max): %d vs %d"
+              "boundary: packet count matches the reached-back interval (+1 priming max): %d vs %d"
               % (len(got), len(exact)))
         steps = sorted({round(got[i + 1] - got[i], 6) for i in range(len(got) - 1)})
         check(len(steps) <= 2 and (max(steps) - min(steps) < 5e-6),  # 5us: float rounding only
               # any real re-timing would move a packet by a whole frame (~21-23ms)
               "boundary: the packet grid stays uniform (no re-timing): " + str(steps[:3]))
-        check(abs(got[0] - 2.0) < 1e-6,
-              "boundary: the delayed audio starts exactly at the shift: " + str(got[0]))
+        check(abs(got[0]) < 0.2,
+              "boundary: the content-delayed audio still starts at zero: " + str(got[0]))
     if out1:
         ast = [s for s in streams_of(out1) if s.get("codec_type") == "audio"]
         vst = [s for s in streams_of(out1) if s.get("codec_type") == "video"]
-        check(packet_md5(out1, "0:a") == packet_md5(vpath, "0:a", 2.0, 4.0),
-              "+2000ms keeps the audio packets bit exact")
+        check(packet_md5(out1, "0:a") == packet_md5(vpath, "0:a", 0.0, 4.0),
+              "+2000ms keeps the audio packets bit exact (content from [0s,4s))")
         check(abs(float(ast[0].get("duration")) - L) < 0.15, "+2000ms keeps the interval length: " + str(ast[0].get("duration")))
-        check(abs(float(ast[0].get("start_time") or 0) - 2.0) < 0.25,
-              "+2000ms delays the audio: start=" + str(ast[0].get("start_time")))
-        check(elst_media_times(out1), "+2000ms writes an edit list (mp4)")
+        check(abs(float(ast[0].get("start_time") or 0)) < 0.25,
+              "+2000ms keeps the audio at zero (the delay rides in the content): start="
+              + str(ast[0].get("start_time")))
+        # No edit list is needed anymore: both tracks start at zero, so there is
+        # nothing for a player to normalise away.  The content-level oracle below
+        # proves the sound itself moved.
         print("   starts:", {s["codec_type"]: s.get("start_time") for s in ast + vst})
     st, j = export(vid["id"], 2_000_000, 6_000_000, {"audioShiftMs": -2000})
     out2 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
@@ -337,6 +341,11 @@ def main():
     sub = (r6 or {}).get("source") or {}
     if not sub.get("id"):
         print("subtitle fixture open failed"); return 1
+    for _ in range(120):
+        st, kf = call("GET", "/api/sources/%s/keyframes" % sub["id"])
+        if (kf or {}).get("state") in ("ready", "error"):
+            break
+        time.sleep(0.4)
     for shift in (0, -2000, 2000):
         st, j = export(sub["id"], 2_000_000, 6_000_000,
                        {"audioShiftMs": shift, "audioTiming": True, "container": "matroska"})

@@ -197,11 +197,12 @@ body.no-scroll{overflow:hidden;touch-action:none}
 .crumbs button{color:var(--blue);padding:2px 5px;border-radius:6px}
 .crumbs button:hover{background:#20263380}
 .list{overflow:auto;flex:1;padding:6px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
-.entry{display:grid;grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"ic nm sz" ". acts acts";gap:6px 10px;align-items:center;padding:10px 12px;border-radius:9px;width:100%;text-align:left}
+.entry{display:grid;grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"ic nm sz" ". dt dt" ". acts acts";gap:6px 10px;align-items:center;padding:10px 12px;border-radius:9px;width:100%;text-align:left}
 .entry:hover{background:#20263380}
 .entry .ic{grid-area:ic;width:24px;text-align:center;font-size:15px}
 .entry .nm{grid-area:nm;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .entry .sz{grid-area:sz;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;min-width:0}
+.entry .dt{grid-area:dt;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .sheet-foot{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .sheet-foot .inp{flex:1 1 120px;min-width:0}
 
@@ -622,6 +623,7 @@ function fmt(us){us=Math.max(0,Math.round(us));const ms=us%1000,s=Math.floor(us/
 function parseTime(str){const m=/^(\d{1,2}):(\d{2}):(\d{2})\.(\d{1,3})$/.exec((str||"").trim());if(!m)return null;
   return ((+m[1]*3600+ +m[2]*60+ +m[3])*1000+(+m[4].padEnd(3,"0")))*1000;}
 function fmtBytes(b){if(b==null)return"—";const u=["B","KB","MB","GB","TB"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++;}return b.toFixed(i?1:0)+" "+u[i];}
+function fmtDate(ms){if(ms==null)return"—";const d=new Date(ms);const p=n=>String(n).padStart(2,"0");return d.getFullYear()+"/"+p(d.getMonth()+1)+"/"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes());}
 function toast(msg,err){const t=$("toast");t.textContent=msg;t.className="show"+(err?" err":"");clearTimeout(t._t);t._t=setTimeout(()=>t.className="",3200);}
 function showErr(msg){const e=$("errbox");e.textContent=msg;e.classList.add("show");}
 function clearErr(){$("errbox").classList.remove("show");}
@@ -845,7 +847,10 @@ function renderSource(){
    ["チャンネル",ast&&ast.channels?(ast.channels+(ast.channel_layout?" ("+ast.channel_layout+")":"")):"—"],
    ["ピクセル形式",s.pixFmt||"—"],
    ["総フレーム数",vst&&vst.nb_frames?String(vst.nb_frames):"—"],
-   ["由来",s.origin==="upload"?"アップロード":"ローカル"]]
+   ["由来",s.origin==="upload"?"アップロード":"ローカル"],
+   ["撮影日",s.shotAtMs?fmtDate(s.shotAtMs):"—"],
+   ["作成日",fmtDate(s.fileCtimeMs)],
+   ["更新日",fmtDate(s.fileMtimeMs)]]
    .forEach(([k,v])=>{const sp=document.createElement("span");sp.textContent=k+": "+v;metaBox.appendChild(sp);});
   const detail=$("srcDetail");detail.textContent="";
   const fmtBox=document.createElement("div");fmtBox.className="stream-box";
@@ -1258,7 +1263,10 @@ function renderBrowse(d){
     const ic=document.createElement("span");ic.className="ic";ic.textContent=en.dir?"📁":"🎞️";
     const nm=document.createElement("span");nm.className="nm";nm.textContent=midEllipsis(en.name,44);nm.title=en.name;
     b.appendChild(ic);b.appendChild(nm);
-    if(!en.dir){const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtBytes(en.size);b.appendChild(sz);}
+    if(!en.dir){const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtBytes(en.size);b.appendChild(sz);
+    const dt=document.createElement("span");dt.className="dt";
+    dt.textContent="撮 — ・更 "+fmtDate(en.mtimeMs)+"・作 "+fmtDate(en.ctimeMs);
+    dt.dataset.shotPath=en.path;dt.dataset.mt=fmtDate(en.mtimeMs);dt.dataset.ct=fmtDate(en.ctimeMs);b.appendChild(dt);}
     const cp=document.createElement("span");cp.className="act";cp.textContent="コピー";
     cp.addEventListener("click",ev=>{ev.stopPropagation();pickAction="copy";pickSource=en.path;$("useDirBtn").textContent="ここにコピー";$("useDirBtn").style.display="inline-flex";toast("移動先フォルダを開いて「ここにコピー」");});
     const acts=document.createElement("span");acts.className="acts";acts.appendChild(cp);
@@ -1271,6 +1279,22 @@ function renderBrowse(d){
     acts.appendChild(dl);b.appendChild(acts);
     b.addEventListener("click",()=>{if(en.dir)browseTo(en.path);else if(!pickAction)openLocal(en.path);});
     list.appendChild(b);});
+  fillShotDates(list);}
+async function fillShotDates(list){
+  /* Recording dates need ffprobe: fetch lazily in chunks so the listing stays instant. */
+  const spans=Array.from(list.querySelectorAll("span.dt[data-shot-path]"));
+  for(let i=0;i<spans.length;i+=30){
+    const batch=spans.slice(i,i+30).filter(el=>el.isConnected);
+    if(!batch.length)continue;
+    let dates={};
+    try{const d=await api("/api/media-dates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paths:batch.map(el=>el.dataset.shotPath)})});dates=(d&&d.dates)||{};}catch(_){}
+    batch.forEach(el=>{
+      if(!el.isConnected)return;
+      const hit=dates[el.dataset.shotPath];
+      el.textContent="撮 "+((hit&&hit.shotAtMs!=null)?fmtDate(hit.shotAtMs):"—")
+        +"・更 "+(el.dataset.mt||"—")+"・作 "+(el.dataset.ct||"—");
+    });
+  }
 }
 async function openLocal(path){
   hideBrowse();clearErr();

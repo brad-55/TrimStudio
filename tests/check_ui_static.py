@@ -283,5 +283,7 @@ check("audio timing: the jog never takes an absolute value", "function setAudioS
 check("audio: silence is carried by volume, not by pausing", "el.dataset[flag]='1';follow(el);" in qwen or ("el.dataset[flag]='1';" in qwen and "if(!el.paused)el.pause();" not in qwen.split("const handle=function(el,flag,target){")[1].split("handle(origAudio")[0]))
 check("audio timing: one mute listener only", qwen.count("muteOrigAuditionChk\").addEventListener('change'") == 1)
 check("audio timing: silence is explained", "動画を再生すると聴こえます" in qwen and "ずらしが動画の長さを超えているため無音です" in qwen)
+check("qwen: explorer rows show shot/update/create dates", "span.dt" in qwen and "fmtDate(en.mtimeMs)" in qwen and "fillShotDates" in qwen and "/api/media-dates" in qwen)
+check("qwen: source detail shows the three dates", "撮影日" in qwen and "s.shotAtMs" in qwen and "s.fileCtimeMs" in qwen and "s.fileMtimeMs" in qwen)
 print("RESULT:", "OK" if fails == 0 else "FAIL(%d)" % fails)
 sys.exit(0 if fails == 0 else 1)

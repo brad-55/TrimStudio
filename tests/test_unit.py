@@ -357,6 +357,16 @@ def main():
     check(_p["offsets"]["video"] == 0 and _p["offsets"]["audio"] == 0
           and _p["offsets"]["audioSkipUs"] == 1_500_000,
           "a negative shift advances the audio: " + str(_p["offsets"]))
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": 1500}, 4_000_000, 8_000_000, _w)
+    check(_p is not None and _p["offsets"]["audio"] == 0
+          and _p["offsets"]["audioPreUs"] == 1_500_000,
+          "a positive shift with room is carried in the content: " + str(_p["offsets"]))
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": 1500}, 0, 4_000_000, _w)
+    check(_p["offsets"]["audio"] == 1_500_000 and _p["offsets"].get("audioPreUs") == 0
+          and any("タイムスタンプ" in x for x in _w),
+          "a positive shift without room falls back to timestamps with a warning: " + str((_p["offsets"], _w)))
 
     _w = []
     _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt), 0, 4_000_000, _w)
