@@ -254,15 +254,17 @@ check("audio: settings persistence", "audioMode:modeRadio?modeRadio.value" in qw
 check("audio: export payload", "o.audioMode=am" in qwen and "o.addedSourceId=" in qwen and "o.addedShiftMs=" in qwen and "o.addedStartMs=" in qwen and "o.addedReencode=" in qwen)
 check("audio: no media reload on start", "origAudio.getAttribute('data-src')!==audSrc" in qwen and "addedAudio.getAttribute('data-src')!==ap" in qwen)
 check("audio: never seeks while loading", "el.readyState<1||el.seeking" in qwen)
-check("audio: preview seeks on a real desync and settles right after start",
-      "Math.abs(d)>0.5" not in qwen and "const tol=tight?0.12:1.0;" in qwen
-      and "const cool=tight?450:700;" in qwen and "auditionGrace=Date.now();" in qwen)
+check("audio: preview seeks past 90ms, throttled, with churn backoff",
+      "Math.abs(d)>0.5" not in qwen and "Math.abs(d)>0.09" in qwen
+      and "now-Number(el.dataset.seekAt)<700" in qwen and "seekFails" in qwen)
 check("audio: preview never modulates the playback rate",
       "-d*0.5" not in qwen and "playbackRate=want" not in qwen
       and "if(el.playbackRate!==1)el.playbackRate=1;" in qwen)
 check("audio: preview clamps seeks and never parks on the last frames",
-      "Math.min(target,dur-0.05)" in qwen and "el.ended||hardset||force" in qwen
+      "Math.min(target,dur-0.05)" in qwen and "Math.abs(d)>0.09" in qwen
       and "el.currentTime=0;" in qwen and "el.pause();" in qwen)
+check("audio: no seek choreography at start, no rate wobble",
+      "kicked" not in qwen and "-d*0.5" not in qwen and "playbackRate=want" not in qwen)
 check("audio: preview shows the live sync error", "映像とのずれ" in qwen and "auditionDelta" in qwen)
 check("audio: the preview keeps the rate at 1 (no wobble)",
       "1+k" not in qwen and "-d*0.5" not in qwen and "el.playbackRate!==1" in qwen)
@@ -273,7 +275,7 @@ check("audio: overlay routing only when meaningful", "function applyAuditionMute
 _sa = qwen[qwen.index("function startAudition("):qwen.index("function stopAudition(")]
 check("audio: preview never starts the video", "vid.play(" not in _sa)
 check("audio: toggle sits between the mode and the shift", qwen.index("id='auditionToggle'") > qwen.index("name='audioModeRadio'") and qwen.index("id='auditionToggle'") < qwen.index("id='origShiftBox'"))
-check("audio: audition plays inside the tap", "origAudio.play()" in qwen[qwen.index("function startAudition("):qwen.index("function stopAudition(")])
+check("audio: audition starts a paused track via follow", "const follow=function(el)" in qwen and "if(el.paused)el.play()" in qwen and "function startAudition()" in qwen)
 check("audio: added url falls back to the original variant", "addedAudio.onerror=function()" in qwen and "variant=original" in qwen)
 check("audio: overlay toggle keeps the video audible", "id='abCompareChk'" in qwen and "vid.muted=!(" in qwen)
 

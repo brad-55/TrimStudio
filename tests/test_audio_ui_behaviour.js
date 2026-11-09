@@ -204,7 +204,7 @@ v.currentTime = 9;
 const writes2 = o._writes.length;
 S.syncAudition(false);
 check("sync: a real desync (7s) is corrected", o._writes.length - writes2 === 1, (o._writes.length - writes2));
-// while the target is still negative the track is silent but never paused
+// while the target is still negative the track stays silent, parked at the head
 const pauses0 = o._pauses;
 S.setAudioShift("orig", 5000);
 v.currentTime = 1;
@@ -213,6 +213,8 @@ check("hold: the track is silent while it waits", o.volume === 0, o.volume);
 check("hold: the waiting track stays silent and parked at the head",
       o.volume === 0 && (o.currentTime <= 0.05 || o.seeking === true),
       "vol=" + o.volume + " t=" + o.currentTime);
+check("hold: parking pauses at most once (no per-frame pause churn)",
+      o._pauses - pauses0 <= 1, "pauses=" + (o._pauses - pauses0));
 check("hold: the rate stays 1", o.playbackRate === 1, o.playbackRate);
 S.stopAudition();
 check("sync: stopping clears the active flag", P.active() === false, P.active());
@@ -258,7 +260,7 @@ S.syncAudition(false);
 check("the same target is still throttled", o._writes.length - w5 <= 1, o._writes.length - w5);
 S.stopAudition();
 
-// --- E. small drift is smoothed, only a real desync seeks ---------------------
+// --- E. small drift is left alone, only a real desync seeks ---------------------
 S.stopAudition();
 S.setAudioShift("orig", 0);
 P.state().source = { id: "s1", durationUs: 12e6 };
@@ -274,7 +276,7 @@ oo.playbackRate = 1;
 S.syncAudition(false);
 check("smooth: in sync means rate 1", oo.playbackRate === 1, oo.playbackRate);
 
-oo.currentTime = 2.06;         // 60 ms ahead: harmless drift
+oo.currentTime = 2.06;         // 60 ms ahead: below the ear's threshold
 const wSmall = oo._writes.length;   // count AFTER positioning the track
 S.syncAudition(false);
 check("stable: a 60ms drift is left alone (no seek, no rate wobble)",

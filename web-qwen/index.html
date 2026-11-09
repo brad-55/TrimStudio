@@ -1747,7 +1747,7 @@ function currentUiZoom(){const v=parseInt($("zoomSel")?$("zoomSel").value:defaul
 function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;/* the jog sliders are relative: their centre already means "the value in use", so they are never moved to an absolute position. Only a stray off-centre handle (missed pointerup) is nudged back. */if(!fromJog&&((rng&&Number(rng.value)!==0)||(fine&&Number(fine.value)!==0))){if(rng)rng.value=0;if(fine)fine.value=0;}if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
   // A new shift re-opens the strict catch-up window: the audio still has to travel
   // to the new position and would otherwise be left behind by the 1s dead band.
-  if(auditionActive){auditionGrace=Date.now();syncAudition(true);queueAuditionSync();}}
+  if(auditionActive){syncAudition(true);queueAuditionSync();}}
 function addedModeActive(m){m=m||audioModeValue();return m==='added'||m==='bothTracks'||m==='bothMix';}
 function origModeActive(m){m=m||audioModeValue();return m==='original'||m==='bothTracks'||m==='bothMix';}
 function renderAddedInfo(){const el=$("addedInfo");if(!el)return;if(state.addedSource){const d=state.addedSource.durationUs;el.textContent=(state.addedSource.name||'追加音声')+(d!=null?' / '+fmt(d):'');}else{el.textContent='未選択';}}
@@ -1757,17 +1757,12 @@ function queueAuditionSync(){if(!auditionActive)return;if(!auditionRaf)auditionR
 function auditionTick(){auditionRaf=0;if(!auditionActive)return;syncAudition();auditionDiag();if(auditionActive)auditionRaf=requestAnimationFrame(auditionTick);}
 let auditionWantPlay=false;
 let auditionDelta=null;   /* last measured audio-vs-video offset in seconds */
-let auditionGrace=0;      /* when the strict catch-up window started */
 function syncAudition(force){
   if(!auditionActive||!state.source)return;
   ensureAuditionAudio();
   const mode=audioModeValue();
   const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
-  const shiftKey=s1+","+s2;
   const t=vid.currentTime||0;
-  /* Playback stays completely untouched while it is in sync: any per-frame rate trim
-     or repeated seek makes the audio stutter, so only a real desync (>0.5s) seeks, and
-     a short grace period keeps a burst of seeks from turning into machine-gun churn. */
   /* Keep playback untouched.  Every attempt to "correct" the audio continuously made
      it worse (seeks per frame cut the sound, replayed fragments, parked on the last
      frames; rate nudges made it wobble).  Align exactly when asked to (onset, user
@@ -1782,26 +1777,39 @@ function syncAudition(force){
     const tgt=dur>0?Math.max(0,Math.min(target,dur-0.05)):Math.max(0,target);
     const d=(el.currentTime||0)-tgt;
     auditionDelta=d;
-    /* Right after playback starts (or after a seek) the audio element is still
-       catching up: it can sit a few hundred ms behind, which made the preview look
-       shifted by far more than the number in the box ("+100 here, +500 in the
-       export").  Be strict for a short window, then leave it alone. */
-    const sinceGrace=Date.now()-(auditionGrace||0);
-    const tight=sinceGrace<2500;
-    const tol=tight?0.12:1.0;
-    const cool=tight?450:700;
-    if(el.ended||hardset||force||Math.abs(d)>tol){
+    /* Already there: seeking again would only add an audible gap. */
+    if(!hardset&&Math.abs(d)<0.005)return true;
+    /* Correct anything the ear can notice (>90 ms) and leave the rest alone: with a
+       whole-second dead band the preview could sit hundreds of ms off and the user
+       would "find" a shift value that only exists in the preview. */
+    if(el.ended||hardset||force||Math.abs(d)>0.09){
       const now=Date.now();
-      /* Throttle by TIME: while the video plays the target keeps moving, so comparing
-         targets never matched and the cooldown silently did nothing (seek churn came
-         back).  A genuinely new shift must still be applied at once. */
-      const changed=el.dataset.seekShift!==shiftKey;
-      if(!hardset&&!changed&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<cool)return true;
-      el.dataset.seekShift=shiftKey;
+      /* Throttled by wall-clock time so a correction never turns into machine-gun
+         seeking.  Explicit actions (onset, buttons, scrub) always go through. */
+      if(!hardset&&!force){
+        if(el.dataset.seekAt&&now-Number(el.dataset.seekAt)<700)return true;
+        /* Back off when seeks stop helping: if the element is still just as lost
+           after several corrections, hammering it only makes gaps.  Quiet down for
+           a while; explicit actions still cut through above. */
+        const fails=Number(el.dataset.seekFails||0);
+        if(el.dataset.suppressUntil&&now<Number(el.dataset.suppressUntil))return true;
+        if(fails>=3){
+          el.dataset.suppressUntil=String(now+5000);
+          el.dataset.seekFails="0";
+          return true;
+        }
+      }
+      /* A fresh episode (long quiet gap) restarts the counter; only a burst of
+         corrections without ever reaching sync counts as struggling. */
+      const gap=el.dataset.seekAt?now-Number(el.dataset.seekAt):1e9;
       el.dataset.seekTarget=String(tgt);
       el.dataset.seekAt=String(now);
+      el.dataset.seekFails=String(gap>3000?1:(Number(el.dataset.seekFails||0)+1));
       try{el.currentTime=tgt;}catch(_){return false;}
       if(el.ended){try{el.play().catch(function(){});}catch(_){}}
+    }else{
+      el.dataset.seekFails="0";
+      delete el.dataset.suppressUntil;
     }
     return true;
   };
@@ -1863,7 +1871,6 @@ function startAudition(){
   origAudio.volume=1;addedAudio.muted=false;addedAudio.volume=1;
   origAudio.playbackRate=1;addedAudio.playbackRate=1;
   auditionWantPlay=true;
-  auditionGrace=Date.now();
   const t0=vid.currentTime||0;
   const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
   const oTarget=t0-s1/1000;
@@ -1888,12 +1895,10 @@ function startAudition(){
   if(auditionCtx&&auditionCtx.state==='suspended'){try{auditionCtx.resume();}catch(_){}}
   auditionActive=true;
   applyAuditionMute();
-  if(!vid.paused){
-  try{
-    const pa=origAudio.play();if(pa&&pa.catch)pa.catch(function(){toast('試聴の再生がブロックされました。もう一度タップしてください',true);});
-    if(useAdded){const pb=addedAudio.play();if(pb&&pb.catch)pb.catch(function(){});}
-  }catch(_){}
-  }
+  /* The audio was positioned above (align); play it at once.  Waiting for a seek
+     event here proved fragile across browsers (a missed event left everything paused
+     and the user heard only a blip).  Any startup lag is picked up by the regular
+     sync below, which corrects real offsets within a second. */
   setAuditionToggle(true);
   syncAudition(true);queueAuditionSync();auditionDiag(true);
 }
@@ -1942,9 +1947,9 @@ if($("addedFileInput"))$("addedFileInput").addEventListener('change',e=>{const f
 if($("auditionToggle"))$("auditionToggle").addEventListener('change',e=>{if(e.target.checked){startAudition();setAuditionToggle(auditionActive);}else{stopAudition();setAuditionToggle(false);}});
 if($("abCompareChk"))$("abCompareChk").addEventListener('change',()=>{applyAuditionMute();if(auditionActive){syncAudition(true);queueAuditionSync();}});
 if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").addEventListener('change',()=>{applyAuditionMute();});
-vid.addEventListener('play',()=>{auditionGrace=Date.now();if(auditionActive)syncAudition(true);queueAuditionSync();});
+vid.addEventListener('play',()=>{if(auditionActive)syncAudition(true);queueAuditionSync();});
 vid.addEventListener('pause',()=>{if(auditionActive)syncAudition(true);});
-vid.addEventListener('seeked',()=>{auditionGrace=Date.now();if(auditionActive)syncAudition(true);queueAuditionSync();});
+vid.addEventListener('seeked',()=>{if(auditionActive)syncAudition(true);queueAuditionSync();});
 document.addEventListener('visibilitychange',()=>{if(!auditionActive)return;if(document.hidden){if(origAudio&&!origAudio.paused)origAudio.pause();if(addedAudio&&!addedAudio.paused)addedAudio.pause();}else{queueAuditionSync();}});
 applyUiZoom(currentUiZoom());updateAudioUI();setAudioShift('orig',state.audioShiftMs||0);setAudioShift('added',state.addedShiftMs||0);setAuditionToggle(false);auditionDiag(true);setInterval(function(){auditionDiag();},500);
 $("spinEscape").addEventListener("click",releaseSpinner);
