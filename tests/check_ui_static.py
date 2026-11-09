@@ -251,9 +251,9 @@ check("audio: settings persistence", "audioMode:modeRadio?modeRadio.value" in qw
 check("audio: export payload", "o.audioMode=am" in qwen and "o.addedSourceId=" in qwen and "o.addedShiftMs=" in qwen and "o.addedStartMs=" in qwen and "o.addedReencode=" in qwen)
 check("audio: no media reload on start", "origAudio.getAttribute('data-src')!==audSrc" in qwen and "addedAudio.getAttribute('data-src')!==ap" in qwen)
 check("audio: never seeks while loading", "el.readyState<1||el.seeking" in qwen)
-check("audio: preview only seeks on a real desync (no per-frame churn)",
-      "Math.abs(d)>0.5" not in qwen and "Math.abs(d)>1.0" in qwen
-      and "now-Number(el.dataset.seekAt)<700" in qwen)
+check("audio: preview seeks on a real desync and settles right after start",
+      "Math.abs(d)>0.5" not in qwen and "const tol=tight?0.12:1.0;" in qwen
+      and "const cool=tight?450:700;" in qwen and "auditionGrace=Date.now();" in qwen)
 check("audio: preview never modulates the playback rate",
       "-d*0.5" not in qwen and "playbackRate=want" not in qwen
       and "if(el.playbackRate!==1)el.playbackRate=1;" in qwen)
