@@ -203,7 +203,8 @@ body.no-scroll{overflow:hidden;touch-action:none}
 .entry .nm{grid-area:nm;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .entry .sz{grid-area:sz;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap;min-width:0}
 .selbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);background:#1b202a}
-.selbar .sel-count{font-size:12px;color:var(--muted);margin-right:4px}
+.selbar .sel-count{font-size:12px;color:var(--muted);margin-right:4px;min-width:9.5em}
+.selbar .btn[disabled]{opacity:.45;pointer-events:none}
 .btn.danger{color:#e06c6c;border-color:#e06c6c66}
 .entry .sel-box{grid-area:mark;width:18px;height:18px;line-height:16px;text-align:center;border:1px solid var(--line);border-radius:5px;font-size:12px;color:var(--blue)}
 .entry.sel{background:#24304380;border-color:var(--blue)}
@@ -594,7 +595,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
     </div>
     <div class="row" style="padding:8px 14px;border-bottom:1px solid var(--line)"><select class="inp" id="driveSel" title="ドライブを切り替え"></select><select class="inp" id="sortSel" title="並び替え"><option value="name">名前順</option><option value="mtimeDesc">更新が新しい順</option><option value="mtimeAsc">更新が古い順</option></select></div>
     <div class="crumbs" id="crumbs"></div>
-    <div class="selbar" id="selBar" hidden>
+    <div class="selbar" id="selBar">
       <span class="sel-count" id="selCount">0 件選択中</span>
       <button class="btn sm" id="selAllBtn">全選択</button>
       <button class="btn sm" id="selCopyBtn">コピー</button>
@@ -1245,11 +1246,16 @@ function togglePicked(path){
   if(browseData)renderBrowse(browseData, true);
 }
 function renderSelBar(){
+  /* Always visible: the actions are part of the explorer, not a popup that only
+     appears after a tick.  With nothing selected they are disabled. */
   const bar=document.getElementById("selBar");if(!bar)return;
   const n=browseSel.size;
-  bar.hidden=n===0;
+  bar.hidden=false;
   const label=document.getElementById("selCount");
-  if(label)label.textContent=n+" 件選択中";
+  if(label)label.textContent=n?(n+" 件選択中"):"ファイルを選択してください";
+  ["selCopyBtn","selMoveBtn","selDlBtn","selDelBtn"].forEach(function(id){
+    const b=$(id);if(b){b.disabled=n===0;b.style.opacity=n===0?"0.45":"";}
+  });
 }
 function selPaths(){return Array.from(browseSel);}
 function clearSel(){browseSel.clear();renderSelBar();}
@@ -1340,6 +1346,7 @@ function renderBrowse(d, keepScroll){
   list.appendChild(frag);
   list.appendChild(buildMoreRow(d));
   if(keepScroll)list.scrollTop=scrolled;
+  renderSelBar();
   fillShotDates(list);}
 function buildMoreRow(d){
   const wrap=document.createElement("div");wrap.className="more-row";wrap.style.cssText="padding:8px;text-align:center";

@@ -93,6 +93,9 @@ check("qwen: silent flag not deleted before use", "delete opt.silent" not in qwe
 check("qwen: entry gives the name its own row", "grid-template-areas" in qwen and '"mark ic nm sz"' in qwen)
 check("qwen: explorer actions are a selection bar, not per-row buttons",
       "id=\"selBar\"" in qwen and "togglePicked" in qwen and 'class="act"' not in qwen.split("allRows.forEach")[1].split("list.appendChild(frag)")[0])
+check("qwen: the action bar is visible before anything is selected",
+      '<div class="selbar" id="selBar">' in qwen and "bar.hidden=false;" in qwen
+      and "b.disabled=n===0" in qwen)
 check("qwen: bulk download zips several files", "/api/fs/zip?" in qwen and 'paths:list' in qwen)
 check("qwen: middle ellipsis helper", "function midEllipsis(" in qwen)
 check("qwen: entry name uses middle ellipsis", "midEllipsis(en.name,44)" in qwen)
