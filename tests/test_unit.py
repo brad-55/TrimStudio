@@ -284,15 +284,23 @@ def main():
     with open(_log, "w", encoding="utf-8") as fh:
         fh.write("2026-01-01 00:00:00 ancient\n")
         fh.write("00:00:00 undated-legacy\n")
+        fh.write('{"t": "2999-01-01 00:00:00", "label": "json-future"}\n')
         fh.write("2999-01-01 00:00:00 future\n")
     proc.prune_logs()
     _body = open(_log, encoding="utf-8").read()
-    check("future" in _body and "ancient" not in _body and "legacy" not in _body,
-          "prune_logs keeps only the recent window: " + _body.replace(chr(10), "|")[:80])
+    check("future" in _body and "json-future" in _body
+          and "ancient" not in _body and "legacy" not in _body,
+          "prune_logs keeps only the recent window (incl. JSON lines): " + _body.replace(chr(10), "|")[:120])
     _log.unlink()
     _missing = proc.probe_media(r"tools/ffmpeg/bin/ffprobe.exe", "data/does-not-exist.mp4")
     check(isinstance(_missing, dict) and not _missing.get("codec"),
           "probe_media returns cleanly for a missing file (never raises)")
+    # NOTE: prune_logs scans the real data/logs dir, so this test uses a unique
+    # selftest.log name and removes it; production logs are only pruned, never written.
+    if os.path.exists(r"tools/ffmpeg/bin/ffprobe.exe"):
+        check("probe_error" not in _missing,
+              "probe_media really spawned ffprobe (no swallowed NameError): "
+              + str(_missing.get("probe_error")))
     _real = None
     for _cand in ("data/test/aux", "data/test"):
         import glob as _glob

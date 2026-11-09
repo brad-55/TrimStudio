@@ -22,7 +22,6 @@ def prune_logs(days=LOG_RETENTION_DAYS):
     """Drop log lines older than the retention window (called on startup and while writing)."""
     import time
     try:
-        from pathlib import Path
         cutoff = time.time() - days * 86400
         logs = _log_dir()
         if not logs.exists():
@@ -41,8 +40,12 @@ def prune_logs(days=LOG_RETENTION_DAYS):
                         total += 1
                         try:
                             t = time.mktime(time.strptime(line[:19], "%Y-%m-%d %H:%M:%S"))
-                        except ValueError:
-                            t = 0.0  # undated (legacy) lines are treated as expired
+                        except (ValueError, OverflowError):
+                            try:  # export_debug.log is JSON Lines; "t" holds its date
+                                t = time.mktime(time.strptime(
+                                    __import__("json").loads(line).get("t", ""), "%Y-%m-%d %H:%M:%S"))
+                            except Exception:
+                                t = 0.0  # undated (legacy) lines are treated as expired
                         if t >= cutoff:
                             keep.append(line)
                 if len(keep) != total:
@@ -57,10 +60,8 @@ def prune_logs(days=LOG_RETENTION_DAYS):
 
 def _log_cmd(cmd):
     try:
-        import os
         import time
-        from pathlib import Path
-        log = Path(__file__).resolve().parent.parent / "data" / "logs" / "ffmpeg_cmds.log"
+        log = _log_path("ffmpeg_cmds.log")
         log.parent.mkdir(parents=True, exist_ok=True)
         with open(log, "a", encoding="utf-8") as fh:
             fh.write(time.strftime("%Y-%m-%d %H:%M:%S") + " " + " ".join(str(c) for c in cmd) + chr(10))
@@ -123,8 +124,7 @@ def log_debug(label, **fields):
     try:
         import json
         import time
-        from pathlib import Path
-        log = Path(__file__).resolve().parent.parent / "data" / "logs" / "export_debug.log"
+        log = _log_path("export_debug.log")
         log.parent.mkdir(parents=True, exist_ok=True)
         rec = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "label": label}
         rec.update(fields)
@@ -150,8 +150,6 @@ def probe_media(fp, path):
                              capture_output=True, text=True, encoding="utf-8", errors="replace",
                              creationflags=ffmpeg_tools.CREATE_NO_WINDOW).stdout
         for st in json.loads(out or "{}").get("streams", []):
-            kind = st.get("codec_type")
-            key = str(kind) + (":" + str(st.get("index")) if kind == "audio" else "")
             info["start"][str(st.get("index"))] = st.get("start_time")
             info["duration"][str(st.get("index"))] = st.get("duration")
             info["codec"][str(st.get("index"))] = str(st.get("codec_name")) + "/" + str(st.get("pix_fmt") or "")
