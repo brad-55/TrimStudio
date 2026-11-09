@@ -78,6 +78,23 @@ def streams_of(path):
         return []
 
 
+def subtitle_texts(path, start=None, dur=None):
+    """Decoded cue texts of the first subtitle track (timings stripped)."""
+    import re as _re
+    pre = ["-ss", str(start), "-t", str(dur)] if start is not None else []
+    p = subprocess.run([FF, "-v", "error", "-i", path] + pre + ["-map", "0:s", "-f", "srt", "-"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if p.returncode != 0:
+        return None
+    lines = []
+    for ln in (p.stdout or "").splitlines():
+        s = ln.strip()
+        if not s or s.isdigit() or "-->" in s:
+            continue
+        lines.append(s)
+    return lines
+
+
 def flash_time(path):
     """When the picture actually turns white: the content-level video reference."""
     import re as _re
@@ -303,6 +320,41 @@ def main():
         check(_v and abs(float(_v[0].get("start_time") or 0)) < 0.12,
               "a %+dms shift never moves the video (the reference track): %s"
               % (shift, (_v[0].get("start_time") if _v else None)))
+
+    # --- subtitles ride with the video on every route ---
+    # Regression: gating the subtitle cut on `shifted` dropped subtitles on the
+    # plain route and on the negative-shift (content-advance) route, where all
+    # offsets are zero.  Cues must come from the video interval [2,6) every time.
+    spath = os.path.abspath(os.path.join(D, "sub_e2e_" + stamp + ".srt"))
+    with open(spath, "w", encoding="utf-8") as fh:
+        for i in range(6):
+            fh.write("%d\n00:00:%02d,000 --> 00:00:%02d,000\ncue %d\n\n"
+                       % (i + 1, 2 * i, 2 * i + 1, i + 1))
+    subpath = os.path.abspath(os.path.join(D, "sub_e2e_" + stamp + ".mkv"))
+    run([FF, "-y", "-v", "error", "-i", vpath, "-i", spath,
+         "-map", "0:v", "-map", "0:a", "-map", "1", "-c", "copy", "-shortest", subpath])
+    st, r6 = call("POST", "/api/sources/open", {"path": subpath})
+    sub = (r6 or {}).get("source") or {}
+    if not sub.get("id"):
+        print("subtitle fixture open failed"); return 1
+    for shift in (0, -2000, 2000):
+        st, j = export(sub["id"], 2_000_000, 6_000_000,
+                       {"audioShiftMs": shift, "audioTiming": True, "container": "matroska"})
+        sout = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+        check(j.get("status") == "done" and sout, "subtitle export %+dms succeeds: %s"
+              % (shift, str(j.get("error"))[:200]))
+        if not sout:
+            continue
+        sst = [s for s in streams_of(sout) if s.get("codec_type") == "subtitle"]
+        check(len(sst) == 1, "subtitle survives a %+dms shift: %d subtitle tracks"
+              % (shift, len(sst)))
+        if sst:
+            check(sst[0].get("codec_name") in ("srt", "subrip"),
+                  "the subtitle track stays srt/subrip (copied, not re-encoded): "
+                  + str(sst[0].get("codec_name")))
+            check(subtitle_texts(sout) == subtitle_texts(subpath, 2.0, 4.0),
+                  "subtitle cues come from the video interval [2s,6s) at %+dms: %s"
+                  % (shift, subtitle_texts(sout)))
 
     # --- 4: added mode with addedStartMs (plan E2E 4) ---
     st, j = export(vid["id"], 2_000_000, 6_000_000,

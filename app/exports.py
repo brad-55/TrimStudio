@@ -1032,10 +1032,13 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                     other_sel = [st for st in built["selected"] if st.get("type") != "video"]
                     sub_sel = [st for st in other_sel if st.get("type") == "subtitle"]
                     audio_sel = [st for st in other_sel if st.get("type") == "audio"]
-                    # On the shifted routes the subtitles ride with the video input so they
-                    # keep the video's timestamps (plan 0.2: the video/subtitle input carries
-                    # the video term).  The legacy unshifted route keeps the old grouping.
-                    cut_video = video_sel + sub_sel if (shifted and am != "mute") else video_sel
+                    # Subtitles always ride with the video input so they keep the
+                    # video's timestamps (plan 0.2: the video/subtitle input carries
+                    # the video term).  The only exception is mute, which historically
+                    # drops everything but the picture.  Gating this on `shifted`
+                    # silently dropped subtitles on the plain and negative-shift
+                    # routes, where all offsets are zero.
+                    cut_video = video_sel + sub_sel if am != "mute" else video_sel
                     vtemp = temp.with_name(temp.stem + ".v" + temp.suffix)
                     atemp = None
                     add_temp = None
@@ -1062,22 +1065,31 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                                                           built["actualStartUs"]), total_us=total)
                     else:
                         if am in ("original", "bothTracks") and audio_sel:
-                            atemp = temp.with_name(temp.stem + ".a" + temp.suffix)
-                            job.update(message="lossless audio copy")
                             skip = int(offs.get("audioSkipUs") or 0)
                             a_start = built["actualStartUs"] + skip
                             a_end = built["actualEndUs"] + skip
-                            if skip:
-                                dur = int(source.get("duration_us") or 0)
-                                if dur and a_end > dur:
-                                    a_end = dur
-                                    built["warnings"].append(
-                                        "音声を " + str(round(skip / 1000.0)) + "ms 進めるため末尾が素材の終端に達しました"
-                                        "（音声が少し短くなります）")
-                                log_debug("audio_advance", job=job.id, skipUs=skip,
-                                          cutStartUs=a_start, cutEndUs=a_end)
-                            run_ffmpeg_job(job, ff, _av_cut_args(source, atemp, audio_sel,
-                                                                 a_start, a_end), total_us=total)
+                            dur = int(source.get("duration_us") or 0)
+                            if skip and dur and a_start >= dur:
+                                # The advanced interval lies entirely past EOF: keep
+                                # the video and drop the audio instead of feeding
+                                # ffmpeg an empty cut (which fails the whole export).
+                                built["warnings"].append(
+                                    "ずらし量が大きいため区間全体が素材の終端を過ぎ、音声なしで書き出します")
+                                log_debug("audio_advance_empty", job=job.id, skipUs=skip,
+                                          cutStartUs=a_start, sourceDurUs=dur)
+                            else:
+                                atemp = temp.with_name(temp.stem + ".a" + temp.suffix)
+                                job.update(message="lossless audio copy")
+                                if skip:
+                                    if dur and a_end > dur:
+                                        a_end = dur
+                                        built["warnings"].append(
+                                            "音声を " + str(round(skip / 1000.0)) + "ms 進めるため末尾が素材の終端に達しました"
+                                            "（音声が少し短くなります）")
+                                    log_debug("audio_advance", job=job.id, skipUs=skip,
+                                              cutStartUs=a_start, cutEndUs=a_end)
+                                run_ffmpeg_job(job, ff, _av_cut_args(source, atemp, audio_sel,
+                                                                     a_start, a_end), total_us=total)
                         if added_info is not None:
                             add_temp = temp.with_name(temp.stem + ".x" + temp.suffix)
                             job.update(message="re-encoding the added audio" if added_info["reencode"]
