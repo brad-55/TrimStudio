@@ -504,3 +504,8 @@ Agy:
   （実測 0.142s）／相関ラグ ±90ms（実測 67ms）／成分別相関 0.3×sqrt(Ei/ΣE)・下限0.02。
 - 残存（非ブロッキング）: `delayMode` は元トラックのみ（追加 +500 は appliedMs/PTS で検証）、
   4K フル素材のプレビューは 1 ケース 24.4s、コンテナ timestamp は edit list 尊重プレイヤー前提。
+- レビュー後の未修正 Minor 処理（2026-11-11）: matrix テストの負シフト固定 0.5s を動的化、
+  フル素材プレビューの interval 指定統一、unit に mute + delayNoReencode、e2e に 9c/9d の警告
+  対称化と content 経路の再エンコード無警告チェック、`build_mix_args` の冗長 else 削除、
+  アプリ version を **0.3.1** に更新（/api/health）。テストは matrix 1331/63 checks FAIL 0、
+  e2e_audio_export OK、unit OK、静的ガード 196/0 を再確認。

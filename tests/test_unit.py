@@ -447,6 +447,15 @@ def main():
     check(_add.get("startUs") == 0 and _add.get("headSkipUs") == 0 and _add.get("reencode") is False,
           "bothTracks keeps the added track placement unchanged: " + str(_add))
     _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4",
+                             {"audioMode": "mute", "audioShiftMs": 500, "addedShiftMs": 500,
+                              "delayNoReencode": True}, 0, 4_000_000, _w)
+    check(_p["mode"] == "mute" and _p.get("delayMode") == "none"
+          and not any(_p["offsets"].values()),
+          "mute ignores shifts and delayNoReencode: " + str((_p["offsets"], _p.get("delayMode"))))
+    check(any("消音ではずらしを無視" in x for x in _w),
+          "mute + delayNoReencode reports the ignored shifts: " + str(_w))
+    _w = []
     _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt), 0, 4_000_000, _w)
     check(_p["added"]["reencode"] is False, "a compatible added codec is copied while the checkbox is off")
     _w = []

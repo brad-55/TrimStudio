@@ -225,6 +225,8 @@ def main():
     _au1 = (j.get("result") or {}).get("audio") or {}
     check(_au1.get("contentMs", {}).get("reachBack") == 2000.0 and not _au1.get("ignored"),
           "the job result reports the content delay for +2000ms: " + str(_au1)[:200])
+    check(not any("再エンコード" in str(x) for x in ((j.get("result") or {}).get("warnings") or [])),
+          "the content delay does not claim an audio re-encode")
     if out1:
         # Independent oracle: the source's own packet grid is measured straight from the
         # file (no seek), never by re-running the pipeline's cut.  A positive delay is
@@ -642,6 +644,8 @@ def main():
         _w = (_res.get("warnings") or [])
         check(not any("再エンコード" in str(x) for x in _w),
               "matroska does not claim an audio re-encode: " + str(_w)[:220])
+        check(any("タイムスタンプ" in str(x) for x in _w),
+              "matroska warns the player caveat: " + str(_w)[:220])
 
     # --- 9d: an edit-list-less container falls back to the exact re-encode ---
     _o9f = os.path.abspath(os.path.join(D, "delay_fallback_e2e_" + stamp + ".flv"))
@@ -660,6 +664,8 @@ def main():
               "the fallback is reported as re-encoded")
         check(any("無変換の遅延に対応しない" in str(x) for x in _w),
               "the fallback reason is warned: " + str(_w)[:220])
+        check(not any("タイムスタンプ" in str(x) for x in _w),
+              "the fallback does not claim a timestamp delay: " + str(_w)[:220])
         check(packet_md5(out9f, "0:a") != packet_md5(vpath, "0:a", 0.0, 4.0),
               "the fallback really re-encodes the audio")
 

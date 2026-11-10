@@ -309,6 +309,9 @@ GLM によるレビューは計5回。第1回 条件付きGo（重大2・中5・
   `build_mix_args` を atrim ベースの切り出し＋`aresample/aformat`＋最終 `apad/atrim` に変更し、
   110ケースで正常を確認。既存の `e2e_audio_export` も回帰として維持する。
 
+- レビュー後の未修正 Minor の処理: matrix テストの負シフト固定 0.5s を動的化、フル素材プレビューの
+  interval 指定統一、unit に mute + delayNoReencode、e2e に 9c/9d の警告対称化・content 経路の
+  再エンコード無警告チェックを追加。アプリ version を 0.3.1 に更新（/api/health）。
 - 実行結果（2026-11-11・build 一致）:
   - `e2e_audio_matrix.py --skip-full`: 106ケース / **1331 checks** / FAIL 0（`RESULT: OK`）
   - `e2e_audio_matrix.py --filter=full`: 4ケース（405s フル素材含む）/ **63 checks** / FAIL 0

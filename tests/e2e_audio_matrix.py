@@ -352,7 +352,7 @@ def build_cases():
     if not SKIP_FULL:
         for role in roles:
             add("export", role, "bothMix", 500, 500, variant="full", full=True, interval=(S0, E0))
-            add("preview", role, "bothMix", 500, 500, variant="full", full=True)
+            add("preview", role, "bothMix", 500, 500, variant="full", full=True, interval=(S0, E0))
     return cases
 
 
@@ -478,7 +478,7 @@ def added_component_export(c, L, a):
     if a > 0:
         return zpad(decode(src, "0:a:0", 0.0, L - a), a)
     if a < 0:
-        return decode(src, "0:a:0", 0.5, L)
+        return decode(src, "0:a:0", abs(a), L)
     return decode(src, "0:a:0", 0.0, L)
 
 
@@ -592,12 +592,12 @@ def run_export_case(c):
 
     if c.get("addedReencode"):
         src = os.path.abspath(AD[role])
-        exp = decode(src, "0:a:0", 0.5 if a < 0 else 0.0, L)
+        exp = decode(src, "0:a:0", abs(a / 1000.0) if a < 0 else 0.0, L)
         actual = decode(out, "0:a:0", 0.0, L)
         h, lag = corr_peak(actual, exp, window_s=L)
         check(h >= CORR_MIN and abs(lag) <= 0.09,
               c["id"] + " re-encoded added placement (corr=%.3f lag=%.3f)" % (h, lag))
-        check(packet_md5(out, "0:a") != packet_md5(src, "0:a", 0.5 if a < 0 else 0.0, L),
+        check(packet_md5(out, "0:a") != packet_md5(src, "0:a", abs(a / 1000.0) if a < 0 else 0.0, L),
               c["id"] + " added audio really re-encoded")
         if a > 0:
             stt = start_time(out, "0:a:0")
@@ -629,7 +629,7 @@ def run_export_case(c):
     if mode in ("added", "bothTracks"):
         spec = "0:a:0" if mode == "added" else "0:a:1"
         got = packet_md5(out, spec)
-        start = 0.5 if a < 0 else 0.0
+        start = abs(a / 1000.0) if a < 0 else 0.0
         exp = packet_md5(os.path.abspath(AD[role]), "0:a", start, L)
         check(got == exp, c["id"] + " added packets == source [%.3f..%.3f)" % (start, start + L))
         if a < 0:

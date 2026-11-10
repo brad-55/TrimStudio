@@ -89,6 +89,9 @@ def _bool_value(value):
     raise ValueError("not a boolean: " + repr(value))
 
 
+APP_VERSION = "0.3.1"
+
+
 def create_app():
     app = FastAPI(title="Trim", docs_url=None, redoc_url=None)
     cfg = Config()
@@ -208,7 +211,7 @@ def create_app():
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "ffmpeg": bool(app.state.ffmpeg), "ffmpegVersion": ffmpeg_tools.ffmpeg_version(app.state.ffmpeg), "version": "0.1.0", "build": BUILD_STAMP, "ffmpegPath": app.state.ffmpeg}
+        return {"ok": True, "ffmpeg": bool(app.state.ffmpeg), "ffmpegVersion": ffmpeg_tools.ffmpeg_version(app.state.ffmpeg), "version": APP_VERSION, "build": BUILD_STAMP, "ffmpegPath": app.state.ffmpeg}
 
     @app.get("/api/token")
     def token():

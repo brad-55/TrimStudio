@@ -1085,8 +1085,6 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                             # in this closure); use a copy for the builders below.
                             re_opts = dict(options, audioReencode=True)
                             built["warnings"].append("音声のずらしを反映するため音声のみ再エンコードします（無変換ではなくなります）")
-                        else:
-                            re_opts = options
         built["reencodeFilterShiftMs"] = rshift if (raf and reencode) else 0
         log_debug("route", job=job.id, kind=built["kind"], audioMode=ram,
                   reencodeShiftUs=(rshift if raf else 0), audioDropped=not any(st.get("type") == "audio" for st in rsel))
