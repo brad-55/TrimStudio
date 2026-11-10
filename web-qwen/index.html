@@ -1763,53 +1763,42 @@ function syncAudition(force){
   const mode=audioModeValue();
   const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
   const t=vid.currentTime||0;
-  /* Keep playback untouched.  Every attempt to "correct" the audio continuously made
-     it worse (seeks per frame cut the sound, replayed fragments, parked on the last
-     frames; rate nudges made it wobble).  Align exactly when asked to (onset, user
-     seek, shift change) and otherwise only intervene when the tracks are genuinely
-     out of sync. */
+  /* Three-tier sync, in order of intrusiveness:
+     - under 80 ms: do nothing (below the ear's threshold; no wobble, no gaps)
+     - 80-250 ms: converge with a tiny clamped playback-rate nudge (inaudible pitch,
+       continuous sound).  This is what keeps the preview honest: the audio element
+       starts late after buffering, and a dead band alone let that ~400 ms startup lag
+       persist, so "+100 in the preview" sounded like "+500 in the export".
+     - over 250 ms (or ended / explicit action): one throttled seek.
+     Seeking every small drift was audible as stutter, so seeks stay rare. */
   const settle=function(el,target,hardset){
     if(!el||el.readyState<1||el.seeking)return false;   /* not ready: try again next frame */
-    if(el.playbackRate!==1)el.playbackRate=1;
     /* Clamp inside the media: a target past the end makes the browser sit on the last
        frames, which is the "end of the video plays at the start" symptom. */
     const dur=isFinite(el.duration)?el.duration:0;
     const tgt=dur>0?Math.max(0,Math.min(target,dur-0.05)):Math.max(0,target);
     const d=(el.currentTime||0)-tgt;
+    const ad=Math.abs(d);
     auditionDelta=d;
-    /* Already there: seeking again would only add an audible gap. */
-    if(!hardset&&Math.abs(d)<0.005)return true;
-    /* Correct anything the ear can notice (>90 ms) and leave the rest alone: with a
-       whole-second dead band the preview could sit hundreds of ms off and the user
-       would "find" a shift value that only exists in the preview. */
-    if(el.ended||hardset||force||Math.abs(d)>0.09){
+    if(!hardset&&ad<0.005)return true;   /* aligned: another seek would only add a gap */
+    if(el.ended||hardset||force||ad>0.25){
       const now=Date.now();
       /* Throttled by wall-clock time so a correction never turns into machine-gun
          seeking.  Explicit actions (onset, buttons, scrub) always go through. */
-      if(!hardset&&!force){
-        if(el.dataset.seekAt&&now-Number(el.dataset.seekAt)<700)return true;
-        /* Back off when seeks stop helping: if the element is still just as lost
-           after several corrections, hammering it only makes gaps.  Quiet down for
-           a while; explicit actions still cut through above. */
-        const fails=Number(el.dataset.seekFails||0);
-        if(el.dataset.suppressUntil&&now<Number(el.dataset.suppressUntil))return true;
-        if(fails>=3){
-          el.dataset.suppressUntil=String(now+5000);
-          el.dataset.seekFails="0";
-          return true;
-        }
-      }
-      /* A fresh episode (long quiet gap) restarts the counter; only a burst of
-         corrections without ever reaching sync counts as struggling. */
-      const gap=el.dataset.seekAt?now-Number(el.dataset.seekAt):1e9;
+      if(!hardset&&!force&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<1000)return true;
       el.dataset.seekTarget=String(tgt);
       el.dataset.seekAt=String(now);
-      el.dataset.seekFails=String(gap>3000?1:(Number(el.dataset.seekFails||0)+1));
       try{el.currentTime=tgt;}catch(_){return false;}
+      if(el.playbackRate!==1)el.playbackRate=1;
       if(el.ended){try{el.play().catch(function(){});}catch(_){}}
-    }else{
-      el.dataset.seekFails="0";
-      delete el.dataset.suppressUntil;
+      return true;
+    }
+    if(ad>0.08){
+      const k=Math.max(-0.04,Math.min(0.04,-d*0.15));
+      const want=1+k;
+      if(Math.abs(el.playbackRate-want)>0.002)el.playbackRate=want;
+    }else if(el.playbackRate!==1){
+      el.playbackRate=1;
     }
     return true;
   };

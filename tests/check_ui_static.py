@@ -254,20 +254,17 @@ check("audio: settings persistence", "audioMode:modeRadio?modeRadio.value" in qw
 check("audio: export payload", "o.audioMode=am" in qwen and "o.addedSourceId=" in qwen and "o.addedShiftMs=" in qwen and "o.addedStartMs=" in qwen and "o.addedReencode=" in qwen)
 check("audio: no media reload on start", "origAudio.getAttribute('data-src')!==audSrc" in qwen and "addedAudio.getAttribute('data-src')!==ap" in qwen)
 check("audio: never seeks while loading", "el.readyState<1||el.seeking" in qwen)
-check("audio: preview seeks past 90ms, throttled, with churn backoff",
-      "Math.abs(d)>0.5" not in qwen and "Math.abs(d)>0.09" in qwen
-      and "now-Number(el.dataset.seekAt)<700" in qwen and "seekFails" in qwen)
-check("audio: preview never modulates the playback rate",
-      "-d*0.5" not in qwen and "playbackRate=want" not in qwen
-      and "if(el.playbackRate!==1)el.playbackRate=1;" in qwen)
+check("audio: three-tier sync (do nothing / rate nudge / rare seek)",
+      "ad>0.25" in qwen and "ad>0.08" in qwen
+      and "Math.max(-0.04,Math.min(0.04,-d*0.15))" in qwen
+      and "now-Number(el.dataset.seekAt)<1000" in qwen)
+check("audio: rate nudge is bounded and reset once aligned",
+      "const want=1+k;" in qwen and "el.playbackRate=1;" in qwen
+      and "-d*0.5" not in qwen and "seekFails" not in qwen and "kicked" not in qwen)
 check("audio: preview clamps seeks and never parks on the last frames",
-      "Math.min(target,dur-0.05)" in qwen and "Math.abs(d)>0.09" in qwen
+      "Math.min(target,dur-0.05)" in qwen and "el.ended||hardset||force||ad>0.25" in qwen
       and "el.currentTime=0;" in qwen and "el.pause();" in qwen)
-check("audio: no seek choreography at start, no rate wobble",
-      "kicked" not in qwen and "-d*0.5" not in qwen and "playbackRate=want" not in qwen)
 check("audio: preview shows the live sync error", "映像とのずれ" in qwen and "auditionDelta" in qwen)
-check("audio: the preview keeps the rate at 1 (no wobble)",
-      "1+k" not in qwen and "-d*0.5" not in qwen and "el.playbackRate!==1" in qwen)
 check("audio: the preview UI removals", "auditionBar" not in qwen and "barStopBtn" not in qwen and "data-bar" not in qwen and "abHoldBtn" not in qwen and "testToneBtn" not in qwen and "playTestTone" not in qwen and "auditionBtn" not in qwen)
 check("audio: L/R split capability kept", "function ensureAudioGraph(" in qwen and "createStereoPanner" in qwen)
 check("audio: single alignment after metadata", "addEventListener('loadedmetadata',apply,{once:true})" in qwen)
