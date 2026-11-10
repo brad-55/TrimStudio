@@ -61,6 +61,27 @@ def remove_orphans(cfg, max_age_seconds=3600):
                 removed += 1
         except OSError:
             pass
+    preview_dir = work / "preview"
+    if preview_dir.exists():
+        for item in list(preview_dir.glob("*.part*")):
+            try:
+                if now - item.stat().st_mtime > max_age_seconds:
+                    item.unlink()
+                    removed += 1
+            except OSError:
+                pass
+        for mp4 in list(preview_dir.glob("*.mp4")):
+            ok = preview_dir / (mp4.stem + ".ok")
+            try:
+                if not ok.exists() and now - mp4.stat().st_mtime > max_age_seconds:
+                    for sibling in (mp4, preview_dir / (mp4.stem + ".json")):
+                        try:
+                            sibling.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                    removed += 1
+            except OSError:
+                pass
     for item in work.glob("export-*"):
         try:
             if item.is_dir() and now - item.stat().st_mtime > max_age_seconds:
@@ -103,6 +124,25 @@ def enforce(cfg, db, job_manager=None, log=print):
             candidates.append((path.stat().st_mtime, path, _size_of(path)))
         except OSError:
             pass
+    # Preview proxies are a trio (.mp4 + .json + .ok) keyed by a content hash, so they are
+    # evicted as a unit.  The media endpoint touches all three on every GET, which keeps a
+    # preview that is actually being played at the recent end of the LRU.
+    preview_dir = work / "preview"
+    if preview_dir.exists():
+        import json as _json
+        for mp4 in list(preview_dir.glob("*.mp4")):
+            key = mp4.stem
+            trio = [mp4, preview_dir / (key + ".json"), preview_dir / (key + ".ok")]
+            try:
+                owner = ""
+                meta_path = preview_dir / (key + ".json")
+                if meta_path.exists():
+                    owner = str(_json.loads(meta_path.read_text(encoding="utf-8")).get("sourceId") or "")
+                if owner and owner in active:
+                    continue
+                candidates.append((mp4.stat().st_mtime, mp4, sum(_size_of(p) for p in trio)))
+            except (OSError, ValueError):
+                continue
     thumbs = Path(cfg.thumbs_dir)
     if thumbs.exists():
         for d in thumbs.iterdir():
@@ -122,6 +162,12 @@ def enforce(cfg, db, job_manager=None, log=print):
         try:
             if path.is_dir():
                 shutil.rmtree(path, ignore_errors=True)
+            elif path.parent.name == "preview" and path.suffix == ".mp4":
+                for sibling in (path, path.with_suffix(".json"), path.with_suffix(".ok")):
+                    try:
+                        sibling.unlink(missing_ok=True)
+                    except OSError:
+                        pass
             else:
                 path.unlink(missing_ok=True)
             total -= size

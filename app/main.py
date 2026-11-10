@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 
 from . import audio_sync, cleanup, exports, ffmpeg_tools, fsops, media, proc, security, sources
+from . import preview
 from .config import ROOT, Config
 from .db import Database
 from .jobs import JobManager
@@ -161,6 +162,13 @@ def create_app():
     @app.exception_handler(LookupError)
     async def _lookup_handler(request: Request, exc: LookupError):
         return err("not_found", "not found", 404)
+
+    def _int_clamped(value, low, high):
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            number = 0
+        return max(low, min(high, number))
 
     def source_or_404(source_id):
         source = db.get_source(source_id)
@@ -644,6 +652,80 @@ def create_app():
         if not path.exists():
             return err("not_found", "media not found", 404)
         return range_response(str(path), request)
+
+    @app.post("/api/preview/build")
+    async def preview_build(request: Request):
+        """Build (or return) the preview proxy with the audio timing baked in.
+
+        The client sends the same audio options the export uses.  When the source has to
+        be played through the existing proxy first, the proxy job is started here and the
+        response is 409 with its id, so the client can wait and re-post (the plan's
+        two-step flow; there is no server-side job chaining).
+        """
+        body = await json_object(request)
+        if body is None:
+            return err("invalid_request", "request body must be a JSON object", 400)
+        source = source_or_404(body.get("sourceId", ""))
+        raw_variant = body.get("variant")
+        raw_mode = body.get("audioMode")
+        if raw_variant is not None and not isinstance(raw_variant, str):
+            return err("invalid_variant", "variant must be a string", 400)
+        if raw_mode is not None and not isinstance(raw_mode, str):
+            return err("invalid_audio_mode", "audioMode must be a string", 400)
+        options = {
+            "variant": (raw_variant or "original").strip(),
+            "audioMode": (raw_mode or "original").strip(),
+            "audioShiftMs": _int_clamped(body.get("audioShiftMs"), -600000, 600000),
+            "addedShiftMs": _int_clamped(body.get("addedShiftMs"), -600000, 600000),
+            "addedStartMs": _int_clamped(body.get("addedStartMs"), 0, 86400000),
+            "addedSourceId": body.get("addedSourceId") or None,
+        }
+        if options["variant"] not in ("original", "proxy"):
+            return err("invalid_variant", "variant must be original or proxy", 400)
+        if options["audioMode"] not in ("original", "added", "bothTracks", "bothMix", "mute"):
+            return err("invalid_audio_mode", "unknown audioMode", 400)
+        if options["addedSourceId"]:
+            if not db.get_source(options["addedSourceId"]):
+                return err("not_found", "added source not found", 404)
+        elif options["audioMode"] in ("added", "bothTracks", "bothMix"):
+            return err("invalid_request", "addedSourceId is required for this audioMode", 400)
+        try:
+            job, variant, key, cached = preview.start_preview(cfg, db, jobs, source, options)
+        except preview.ProxyRequired as exc:
+            proxy_job = media.start_proxy(cfg, db, jobs, exc.source_id)
+            return JSONResponse({"ok": False, "code": "proxy_required",
+                                 "proxyJobId": proxy_job.id}, status_code=409)
+        except ValueError as exc:
+            return err("preview_rejected", str(exc), 400)
+        if cached is not None:
+            return {"ok": True, "cached": True, "url": cached["url"],
+                    "sourceTimelineOffsetUs": cached.get("sourceTimelineOffsetUs", 0),
+                    "outputStartOffsetUs": cached.get("outputStartOffsetUs", 0),
+                    "durationUs": cached.get("durationUs", 0), "variant": variant}
+        return {"ok": True, "jobId": job.id, "variant": variant}
+
+    @app.get("/api/preview/media/{key}")
+    def preview_media(key: str, request: Request):
+        """Serve a built preview proxy (Range supported) and keep it LRU-recent."""
+        name = key[:-4] if key.endswith(".mp4") else key
+        if not preview.VALID_KEY.match(name):
+            return err("invalid_key", "invalid preview key", 400)
+        files = preview.paths(cfg, name)
+        # Same long-path treatment as preview.py: on Windows a deep work dir would
+        # otherwise 404 a preview that exists.
+        mp4 = media.long_path(str(files["mp4"]))
+        meta = media.long_path(str(files["json"]))
+        marker = media.long_path(str(files["ok"]))
+        if not Path(mp4).exists() or not Path(marker).exists() or not Path(meta).exists():
+            return err("not_found", "preview not found", 404)
+        # Touch the trio so an actively played preview never falls out of the LRU.
+        try:
+            os.utime(mp4, None)
+            os.utime(meta, None)
+            os.utime(marker, None)
+        except OSError:
+            pass
+        return range_response(mp4, request)
 
     @app.post("/api/exports")
     async def create_export(request: Request):

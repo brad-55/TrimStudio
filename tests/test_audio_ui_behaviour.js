@@ -126,8 +126,7 @@ function load() {
   const m = html.match(/<script>([\s\S]*?)<\/script>/);
   if (!m) { throw new Error("no inline script in " + target); }
   // expose the module-private bindings to the test only (the page itself is untouched)
-  const probe = "\n;globalThis.__probe={state:()=>state,vid:()=>vid,orig:()=>origAudio,"
-    + "added:()=>addedAudio,active:()=>auditionActive,audio:()=>audios};";
+  const probe = "\n;globalThis.__probe={state:()=>state,vid:()=>vid,prev:()=>({url:previewUrl,busy:previewBusy,orig:previewOrigSrc})};";
   vm.runInContext(m[1] + probe, sandbox, { filename: target });
   return {
     sandbox, el, audios,
@@ -137,13 +136,15 @@ function load() {
     els,
   };
 }
-
+(async () => {
 const H = load();
 const $ = H.el;
 const S = H.sandbox;
 const P = H.probe();
 if (!P) { console.log("FAIL the probe is unavailable"); process.exit(1); }
+const vid = P.vid();
 
+// --- A. the jog sliders are relative and never move on their own ---------------------
 // --- A. the jog sliders are relative and never move on their own ---------------------
 S.updateAudioUI();
 const range = $("origShiftRange");
@@ -168,145 +169,98 @@ range.dispatch("input");
 check("jog: dragging left lowers the value by the delta", String($("origShiftInp").value) === "60", $("origShiftInp").value);
 range.dispatch("pointerup");
 
-// --- B. the timing switch controls the settings box ----------------------------------
-S.setAuditionToggle(false);
-check("toggle: OFF hides the settings box", $("audioTimingBox").hidden === true, $("audioTimingBox").hidden);
-check("toggle: OFF shows the OFF label", $("auditionState").textContent === "OFF", $("auditionState").textContent);
-S.setAuditionToggle(true);
-check("toggle: ON shows the settings box", $("audioTimingBox").hidden === false, $("audioTimingBox").hidden);
-check("toggle: ON shows the ON label", $("auditionState").textContent === "ON", $("auditionState").textContent);
+// --- F. the preview is a baked proxy loaded as ONE element ---------------------------
+function ok(data) { return { ok: true, status: 200, text: async () => "", json: async () => data }; }
+function status(code, data) { return { ok: false, status: code, text: async () => "", json: async () => data }; }
+function defer() { return new Promise((r) => setTimeout(r, 0)); }
+vid.play = function () { vid._plays = (vid._plays || 0) + 1; vid.paused = false; return { catch() {} }; };
 
-// --- C. the preview sync loop stays smooth ------------------------------------------
-P.state().source = { id: "s1", durationUs: 12e6 };
-P.state().inUs = 0;
-P.state().addedSource = null;
-$("auditionToggle").checked = true;
-S.setAudioShift("orig", 0);
-S.startAudition();
-check("sync: the audition starts", P.active() === true);
-const o = P.orig();
-check("sync: the audio track is created", !!o);
-const writes0 = o._writes.length;
-const v = P.vid();
-v.src = "/api/sources/s1/media";
-v.paused = false;
-v.currentTime = 2;
-for (let i = 0; i < 40; i++) { v.currentTime = 2 + i * 0.001; S.syncAudition(false); }
-check("sync: the playback rate is never modulated", o.playbackRate === 1, o.playbackRate);
-check("sync: an in-sync track is not re-seeked", o._writes.length - writes0 <= 1, (o._writes.length - writes0));
-// a burst of forced syncs must be throttled by the cooldown
-const writes1 = o._writes.length;
-for (let i = 0; i < 25; i++) { S.syncAudition(true); }
-check("sync: a burst of forced syncs is throttled", o._writes.length - writes1 <= 2, (o._writes.length - writes1));
-// a real desync must be corrected
-H.advance(1000);
-v.currentTime = 9;
-const writes2 = o._writes.length;
-S.syncAudition(false);
-check("sync: a real desync (7s) is corrected", o._writes.length - writes2 === 1, (o._writes.length - writes2));
-// while the target is still negative the track stays silent, parked at the head
-const pauses0 = o._pauses;
-S.setAudioShift("orig", 5000);
-v.currentTime = 1;
-for (let i = 0; i < 10; i++) { S.syncAudition(false); }
-check("hold: the track is silent while it waits", o.volume === 0, o.volume);
-check("hold: the waiting track stays silent and parked at the head",
-      o.volume === 0 && (o.currentTime <= 0.05 || o.seeking === true),
-      "vol=" + o.volume + " t=" + o.currentTime);
-check("hold: parking pauses at most once (no per-frame pause churn)",
-      o._pauses - pauses0 <= 1, "pauses=" + (o._pauses - pauses0));
-check("hold: the rate stays 1", o.playbackRate === 1, o.playbackRate);
-S.stopAudition();
-check("sync: stopping clears the active flag", P.active() === false, P.active());
-check("sync: stopping playback keeps the master switch ON (export still shifts)",
-      $("auditionToggle").checked === true, $("auditionToggle").checked);
-// turning the switch OFF yourself must still disable it
-$("auditionToggle").checked = false;
-$("auditionToggle").dispatch("change");
-check("toggle: turning it off by hand disables the settings",
-      $("auditionToggle").checked === false && $("audioTimingBox").hidden === true,
-      $("auditionToggle").checked + "/" + $("audioTimingBox").hidden);
+S.updateAudioUI();
+check("preview: the apply button exists", !!$("previewApplyBtn"));
+check("preview: revert starts hidden", $("previewRevertBtn").hidden === true);
+check("preview: the state starts as 未反映", String($("previewState").textContent).indexOf("未反映") >= 0, $("previewState").textContent);
 
-// --- D. a held onset is never lost (the "plays at the original timing" regression) ---
-S.stopAudition();
-S.setAudioShift("orig", 1500);
-P.state().inUs = 0;
-v.paused = false;
-v.currentTime = 0;
-$("auditionToggle").checked = true;
-S.startAudition();
-check("held onset: the delayed track starts silent", o.volume === 0, o.volume);
-check("held onset: the pending flag is armed", o.dataset.head === "1", o.dataset.head);
-const w3 = o._writes.length;
-o.readyState = 1;
-o.seeking = true;
-v.currentTime = 1.6;
-S.syncAudition(false);
-check("held onset: a seeking element is not aligned yet", o._writes.length === w3, o._writes.length - w3);
-check("held onset: the flag survives a failed alignment", o.dataset.head === "1", o.dataset.head);
-o.seeking = false;
-S.syncAudition(false);
-check("held onset: the alignment is retried and lands on the target",
-      o._writes.length === w3 + 1 && Math.abs(o._writes[o._writes.length - 1] - 0.1) < 0.06,
-      o._writes[o._writes.length - 1]);
-check("held onset: the flag clears once aligned", o.dataset.head === undefined, o.dataset.head);
-const w4 = o._writes.length;
-S.setAudioShift("orig", 0);
-S.syncAudition(false);
-check("a changed shift bypasses the churn guard", o._writes.length === w4 + 1, o._writes.length - w4);
-const w5 = o._writes.length;
-S.syncAudition(false);
-S.syncAudition(false);
-check("the same target is still throttled", o._writes.length - w5 <= 1, o._writes.length - w5);
-S.stopAudition();
+P.state().source = { id: "s1" };
+S.updateAudioUI();
+const plays0 = vid._plays || 0;
+S.fetch = async () => ok({ ok: true, cached: true, url: "/api/preview/media/aaaa.mp4", sourceTimelineOffsetUs: 0, outputStartOffsetUs: 0 });
+await S.applyPreview();
+check("preview: a cached proxy is loaded into the element",
+      String(vid.src).indexOf("/api/preview/media/") >= 0, vid.src);
+check("preview: revert becomes visible after applying", $("previewRevertBtn").hidden === false);
+check("preview: applying never calls play() (iOS gesture is gone)",
+      (vid._plays || 0) === plays0, (vid._plays || 0) - plays0);
+check("preview: the state reports 反映済み", String($("previewState").textContent).indexOf("反映済み") >= 0, $("previewState").textContent);
 
-// --- E. deadband under 80ms, rate convergence under 250ms, seek beyond -----------
-S.stopAudition();
-S.setAudioShift("orig", 0);
-P.state().source = { id: "s1", durationUs: 12e6 };
-P.state().inUs = 0;
-P.state().addedSource = null;
-$("auditionToggle").checked = true;
-v.paused = false;
-v.currentTime = 2;
-S.startAudition();
-const oo = P.orig();
-oo.currentTime = 2;            // exactly in sync
-oo.playbackRate = 1;
-S.syncAudition(false);
-check("smooth: in sync means rate 1", oo.playbackRate === 1, oo.playbackRate);
+// changing a value after applying must mark the preview as stale, not silently lie
+S.setAudioShift("orig", 180);
+check("preview: a changed shift is marked 未反映（設定が変更されました）",
+      String($("previewState").textContent).indexOf("未反映（設定が変更されました）") >= 0, $("previewState").textContent);
 
-oo.currentTime = 2.06;         // 60 ms ahead: below the ear's threshold
-const wSmall = oo._writes.length;   // count AFTER positioning the track
-S.syncAudition(false);
-check("deadband: a 60ms drift is left alone (no seek, no rate nudge)",
-      oo._writes.length === wSmall && oo.playbackRate === 1,
-      "writes=" + (oo._writes.length - wSmall) + " rate=" + oo.playbackRate);
+// revert puts the original source back
+S.revertPreview();
+check("preview: revert restores the source", String(vid.src).indexOf("/api/preview/media/") < 0, vid.src);
+check("preview: revert hides itself", $("previewRevertBtn").hidden === true);
+check("preview: revert resets the state", String($("previewState").textContent).indexOf("未反映") >= 0, $("previewState").textContent);
 
-oo.currentTime = 2.15;         // 150 ms: audible, but a seek would be louder than the drift
-const wMid = oo._writes.length;
-S.syncAudition(false);
-check("converge: a 150ms drift gets a bounded rate nudge, not a seek",
-      oo._writes.length === wMid && oo.playbackRate < 0.99 && oo.playbackRate > 0.96,
-      "writes=" + (oo._writes.length - wMid) + " rate=" + oo.playbackRate);
+// a fresh build returns a job id and is polled to completion
+const calls = [];
+S.fetch = async (url) => {
+  calls.push(String(url));
+  if (String(url).indexOf("/api/preview/build") >= 0) return ok({ ok: true, jobId: "j1" });
+  return ok({ job: { status: "done", result: { url: "/api/preview/media/bbbb.mp4" } } });
+};
+await S.applyPreview();
+check("preview: a build job is polled once", calls.filter((u) => u.indexOf("/api/jobs/") >= 0).length === 1, calls.join(","));
+check("preview: the polled result is loaded", String(vid.src).indexOf("/api/preview/media/bbbb.mp4") >= 0, vid.src);
 
-H.advance(2000);
-oo.currentTime = 3.5;          // 1.5 s: genuinely out of sync
-const wBig = oo._writes.length;
-S.syncAudition(false);
-check("desync: a 1.5s error seeks once", oo._writes.length === wBig + 1,
-      oo._writes.length - wBig);
-check("desync: the seek clears the rate nudge, back to 1", oo.playbackRate === 1, oo.playbackRate);
+// 409 proxy_required: wait for the proxy job, then retry once
+S.revertPreview();
+let buildPosts = 0;
+S.fetch = async (url) => {
+  const isBuild = String(url).indexOf("/api/preview/build") >= 0;
+  if (isBuild) {
+    buildPosts++;
+    if (buildPosts === 1) return status(409, { ok: false, code: "proxy_required", proxyJobId: "p1" });
+    return ok({ ok: true, cached: true, url: "/api/preview/media/cccc.mp4" });
+  }
+  return ok({ job: { status: "done", result: {} } });
+};
+await S.applyPreview();
+check("preview: proxy_required retries the build exactly once", buildPosts === 2, buildPosts);
+check("preview: the retry result is loaded", String(vid.src).indexOf("/api/preview/media/cccc.mp4") >= 0, vid.src);
 
-// a target past the end must never park the track on its last frames
-H.advance(2000);
-S.setAudioShift("orig", -9000);   // target = t + 9s, way past the 12s duration
-v.currentTime = 10;
-S.syncAudition(true);
-const last = oo._writes[oo._writes.length - 1];
-check("clamp: a seek past the end is clamped inside the media",
-      last !== undefined && last <= 12 && last >= 0, "wrote " + last);
-S.stopAudition();
+// a failure keeps the old source and reports it
+S.revertPreview();
+const srcBefore = vid.src;
+S.fetch = async () => status(400, { ok: false, message: "boom" });
+await S.applyPreview();
+check("preview: a failure leaves the element alone", vid.src === srcBefore, vid.src);
+check("preview: a failure is reported", String($("previewState").textContent).indexOf("失敗") >= 0, $("previewState").textContent);
+
+// a second tap while the build runs must not start a second job (the button is disabled)
+S.revertPreview();
+let releaseBuild;
+const buildGate = new Promise((r) => { releaseBuild = r; });
+let taps = 0;
+S.fetch = (url) => {
+  if (String(url).indexOf("/api/preview/build") >= 0) {
+    taps++;
+    return buildGate.then(() => ok({ ok: true, cached: true, url: "/api/preview/media/eeee.mp4" }));
+  }
+  return ok({ job: { status: "done", result: {} } });
+};
+const running = S.applyPreview();
+const ignored = S.applyPreview();
+check("preview: the apply button is disabled while generating", $("previewApplyBtn").disabled === true);
+check("preview: a second tap while generating is ignored", taps === 1, taps);
+releaseBuild();
+await running;
+await ignored;
+check("preview: the apply button is enabled again after the build", $("previewApplyBtn").disabled === false);
+check("preview: the ignored second tap did not load another url",
+      String(vid.src).indexOf("/api/preview/media/eeee.mp4") >= 0, vid.src);
 
 console.log(fails ? "RESULT: FAIL(" + fails + ")" : "RESULT: OK");
 process.exit(fails ? 1 : 0);
+})();

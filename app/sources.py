@@ -261,6 +261,21 @@ def delete_source(cfg, db, source_id, keep_upload=False):
     proxy = Path(cfg.work_dir) / "proxy" / (source_id + ".mp4")
     sprite = Path(cfg.work_dir) / "sprite" / (source_id + ".jpg")
     frames = Path(cfg.thumbs_dir) / source_id
+    preview_dir = Path(cfg.work_dir) / "preview"
+    if preview_dir.exists():
+        import json as _json
+        for meta_path in list(preview_dir.glob("*.json")):
+            try:
+                if str(_json.loads(meta_path.read_text(encoding="utf-8")).get("sourceId") or "") != source_id:
+                    continue
+            except (OSError, ValueError):
+                continue
+            base = meta_path.with_suffix("")
+            for sibling in (meta_path, Path(str(base) + ".mp4"), Path(str(base) + ".ok")):
+                try:
+                    sibling.unlink(missing_ok=True)
+                except OSError:
+                    pass
     proxy.unlink(missing_ok=True)
     sprite.unlink(missing_ok=True)
     if frames.exists():

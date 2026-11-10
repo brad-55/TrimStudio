@@ -307,7 +307,7 @@ You can shift the audio later or earlier to fix lip-sync drift while keeping the
 - **Extra audio track**: add the audio of another file, with its own start position (ms) and shift.
 - **Auto sync**: analyses the two tracks and proposes an offset (several windows of a few seconds each).
 - **Modes**: original only / extra only / both tracks (two lossless tracks) / mix (audio is re-encoded) / mute.
-- **Preview**: listen to the result at the chosen timing; changes apply immediately.
+- **Applying a preview**: the timing is baked into a **preview-only file (proxy)** that plays as ONE video. After changing a setting, press **Apply to preview** (the button is disabled while it is being generated). Until you do, the original audio plays, so the shift is not audible yet. **Revert** goes back to the original playback.
 - The exported audio packets stay bit-identical to the source when shifting; only the mix mode re-encodes audio.
 
 

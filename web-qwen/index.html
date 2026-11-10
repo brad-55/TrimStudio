@@ -382,16 +382,18 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         .as-sw input:checked~.as-state{color:var(--ok)}
         .as-sw input:focus-visible+.as-track{box-shadow:0 0 0 3px rgba(74,163,255,.35)}
         .as-state{font-family:var(--mono);font-weight:800}
-        .as-sw:has(#auditionToggle:disabled){opacity:.4;pointer-events:none}
-        #audioTimingBox[hidden]{display:none!important}
         </style>
         <div class='field' style='margin-top:12px'>
           <label>音声タイミング調整</label>
-          <label class='as-sw'><input type='checkbox' id='auditionToggle' autocomplete='off' aria-controls='audioTimingBox' aria-expanded='false'><span class='as-track'><span class='as-thumb'></span></span><span class='as-state' id='auditionState'>OFF</span></label>
-          <div class='hint' id='audioTimingState' style='margin-top:2px'></div>
+          <div class='row' style='align-items:center;gap:8px;flex-wrap:wrap'>
+            <button class='btn' id='previewApplyBtn' type='button'>プレビューに反映</button>
+            <button class='btn sm' id='previewRevertBtn' type='button' hidden>元に戻る</button>
+            <span class='hint mono' id='previewState'>未反映</span>
+          </div>
+          <div class='hint' id='audioTimingState' style='margin-top:2px'>この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。</div>
         </div>
 
-        <div id='audioTimingBox' hidden>
+        <div id='audioTimingBox'>
 
         <div class='field' style='margin-top:12px' id='origShiftBox'>
           <label>元の音声のずらし (ms)</label>
@@ -462,11 +464,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         </div>
         <div class='hint' id='syncManualErr' hidden>自動同期できませんでした。手動で合わせてください</div>
 
-        <div class='row' style='margin-top:12px;align-items:center'>
-          <label class='chk'><input type='checkbox' id='muteOrigAuditionChk'>元の音声を消して聞く</label>
-          <label class='chk'><input type='checkbox' id='abCompareChk'>ずらしを耳で確認（元の音と重ねる）</label>
-        </div>
-        <span class='hint mono' id='auditionDiag'></span>
+        <span class='hint mono' id='previewDiag'></span>
         <label class='chk' style='margin-top:8px'><input type='checkbox' id='addedReencodeChk'>追加した音声のみ再エンコード</label>
 <div class='hint' id='addedReencodeHint' style='margin-top:2px'>追加した音声<b>だけ</b>を再エンコードして出力します。出力形式（コンテナ）がその音声をそのまま入れられないときや、音声形式をそろえたいときに ON にします。ON の間は追加音声が再圧縮され、OFF のまま無変換で入れられない音声を選ぶと書き出しがエラーになります（映像と元の音声はどちらも無変換のまま）。</div>
         </div>
@@ -1160,7 +1158,7 @@ function collectOptions(){
   const vb=parseInt($("vbrInp").value,10);if(vb>0)o.videoBitrate=vb;
   const ab=parseInt($("abrInp").value,10);if(ab>0)o.audioBitrate=ab;
   const am=audioModeValue();
-  o.audioTiming=!!($("auditionToggle")&&$("auditionToggle").checked);o.audioMode=am;
+  o.audioMode=am;
   o.audioShiftMs=(am==='mute'||am==='added')?0:clampMs($("origShiftInp")?$("origShiftInp").value:0);
   o.addedSourceId=(addedModeActive(am)&&state.addedSource)?state.addedSource.id:null;
   o.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);
@@ -1449,58 +1447,6 @@ $("setOutBtn").addEventListener("click",()=>{state.outUs=Math.max(state.curUs,st
 $("inTime").addEventListener("change",()=>{const v=parseTime($("inTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.inUs=Math.min(v,state.outUs);updateInOut();updateTimeline();refreshFrames();});
 $("outTime").addEventListener("change",()=>{const v=parseTime($("outTime").value);if(v==null){toast("HH:MM:SS.mmm 形式で入力");return;}state.outUs=Math.max(v,state.inUs);updateInOut();updateTimeline();refreshFrames();});
 
-function applyAuditionMute(){
-  if(!auditionActive)return;
-  const overlay=!!($("abCompareChk")&&$("abCompareChk").checked);
-  const userMuted=!!($("muteOrigAuditionChk")&&$("muteOrigAuditionChk").checked);
-  const origSilent=userMuted||audioModeValue()==='added';
-  if(origAudio)origAudio.muted=origSilent&&!overlay;
-  vid.muted=!(overlay&&!origSilent);
-}
-
-/* ---------- build stamp + audition diagnostics ---------- */
-const TRIM_BUILD="2026-11-08b";
-let auditionCtx=null,origNode=null,addedNode=null,origPan=null,addedPan=null,splitLR=false;
-function ensureAudioGraph(){
-  if(origNode)return;
-  const Ctx=window.AudioContext||window.webkitAudioContext;
-  if(!Ctx)return;
-  try{
-    /* 'interactive' keeps the WebAudio output latency as low as the browser allows;
-       the default can add tens of ms, which showed up as a sync error in the preview. */
-    if(!auditionCtx){try{auditionCtx=new Ctx({latencyHint:'interactive'});}catch(_){auditionCtx=new Ctx();}}
-    origNode=auditionCtx.createMediaElementSource(origAudio);
-    const pan=auditionCtx.createStereoPanner?auditionCtx.createStereoPanner():null;
-    if(pan){origPan=pan;origPan.pan.value=splitLR?-0.9:0;origNode.connect(origPan);origPan.connect(auditionCtx.destination);}
-    else{origNode.connect(auditionCtx.destination);}
-    addedNode=auditionCtx.createMediaElementSource(addedAudio);
-    if(auditionCtx.createStereoPanner){addedPan=auditionCtx.createStereoPanner();addedPan.pan.value=splitLR?0.9:0;addedNode.connect(addedPan);addedPan.connect(auditionCtx.destination);}
-    else{addedNode.connect(auditionCtx.destination);}
-    auditionCtx.onstatechange=function(){if(auditionCtx.state!=='running'&&auditionActive){try{auditionCtx.resume();}catch(_){}}};
-  }catch(e){/* the original keeps working through whatever connected above */}
-}
-function setSplitLR(on){splitLR=!!on;if(origPan)origPan.pan.value=splitLR?-0.9:0;if(addedPan)addedPan.pan.value=splitLR?0.9:0;}
-let diagTs=0;
-function auditionDiag(force){
-  const el=$("auditionDiag");if(!el)return;
-  const now=Date.now();if(!force&&now-diagTs<250)return;diagTs=now;
-  if(!auditionActive){el.textContent="試聴停止中（動画の音がそのまま鳴ります） / "+TRIM_BUILD;return;}
-  const o=origAudio||{},a=addedAudio||{};
-  const s=function(x){return (x.readyState||0)+(x.paused?'停止':'再生')+(x.error?(' ERR'+x.error.code):'');};
-  let extra="";
-  if(vid.paused)extra+=" [動画を再生すると聴こえます]";
-  const dur=(typeof vid.duration==="number"&&isFinite(vid.duration))?vid.duration:0;
-  if(dur>0&&Math.abs(state.audioShiftMs||0)/1000>dur)extra+=" [ずらしが動画の長さを超えているため無音です]";
-  /* Show the live audio-vs-video error so the preview can be judged with a number. */
-  if(auditionDelta!=null&&isFinite(auditionDelta)){
-    const ms=Math.round(auditionDelta*1000);
-    extra+=" | 映像とのずれ "+((ms>0?"+":"")+ms)+"ms";
-  }
-  el.textContent="試聴中 元"+msLabel(state.audioShiftMs||0)+" 追加"+msLabel(state.addedShiftMs||0)+" | orig["+s(o)+"] added["+s(a)+"] muted="+(vid.muted?'y':'n')+" ctx="+(auditionCtx?auditionCtx.state:'-')+extra+" | "+TRIM_BUILD;
-}
-
-
-
 /* ---------- timeline: grab a cursor by its visual knob ---------- */
 const TL_HIT_R=24;      // half target width: 48px, about the 44px minimum
 const TL_DRAG_EPS=3;    // ignore tiny jitter
@@ -1726,7 +1672,10 @@ $("reloadBtn").addEventListener("click",boot);
 /* ---------- audio panel ---------- */
 state.audioMode='original';state.audioShiftMs=0;state.addedShiftMs=0;state.addedStartMs=0;state.addedSource=null;
 let syncTimer=null,lastSyncShift=0,pendingAddedOpen=false,pendingAddedUpload=false;
-let origAudio=null,addedAudio=null,auditionActive=false,auditionRaf=0;
+/* Preview proxy state.  The live preview (a second <audio> element chased with seeks) is
+   gone: the preview is now a real MP4 with the timing baked in, so there is one media
+   clock and nothing can drift.  previewOrigSrc remembers the element source to revert to. */
+let previewToken=0,previewUrl=null,previewOrigSrc="",previewBusy=false,previewOffsetUs=0;
 function setNum(id,v){const el=$(id);if(!el)return;let x=parseInt(v,10);if(!isFinite(x))x=0;if(id==='addedStartInp'&&x<0)x=0;el.value=x;}
 function audioModeValue(){const el=document.querySelector('input[name="audioModeRadio"]:checked');return el?el.value:'original';}
 function clampMs(v){v=parseInt(v,10);if(!isFinite(v))v=0;return v;}
@@ -1745,170 +1694,79 @@ function applyUiZoom(pct){
 }
 function currentUiZoom(){const v=parseInt($("zoomSel")?$("zoomSel").value:defaultUiZoom(),10);return isFinite(v)?v:defaultUiZoom();}
 function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;/* the jog sliders are relative: their centre already means "the value in use", so they are never moved to an absolute position. Only a stray off-centre handle (missed pointerup) is nudged back. */if(!fromJog&&((rng&&Number(rng.value)!==0)||(fine&&Number(fine.value)!==0))){if(rng)rng.value=0;if(fine)fine.value=0;}if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
-  // A new shift re-opens the strict catch-up window: the audio still has to travel
-  // to the new position and would otherwise be left behind by the 1s dead band.
-  if(auditionActive){syncAudition(true);queueAuditionSync();}}
+  markPreviewStale();}
 function addedModeActive(m){m=m||audioModeValue();return m==='added'||m==='bothTracks'||m==='bothMix';}
 function origModeActive(m){m=m||audioModeValue();return m==='original'||m==='bothTracks'||m==='bothMix';}
 function renderAddedInfo(){const el=$("addedInfo");if(!el)return;if(state.addedSource){const d=state.addedSource.durationUs;el.textContent=(state.addedSource.name||'追加音声')+(d!=null?' / '+fmt(d):'');}else{el.textContent='未選択';}}
-function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").disabled=!hasSrc;if($("abCompareChk"))$("abCompareChk").disabled=!hasSrc;if($("auditionToggle"))$("auditionToggle").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();/* Keep the state of the timing switch in plain sight: a value typed while the *//* switch is off is silently ignored by both the preview and the export. */const st=$("audioTimingState");if(st){const on=!!($("auditionToggle")&&$("auditionToggle").checked);const ov=clampMs($("origShiftInp")?$("origShiftInp").value:0),av=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);const hasAdded=!!state.addedSource;const anyVal=(ov!==0)||(av!==0)||(hasAdded&&addedModeActive(mode));if(on){st.textContent='この設定はプレビューと書き出しに反映されます。';st.style.color='';}else if(anyVal){st.textContent='OFF のため、入力した値はプレビューにも書き出しにも反映されません。使うときはこのスイッチを ON にしてください。';st.style.color='#e0a030';}else{st.textContent='OFF: 音声のタイミングは元のままです。';st.style.color='';}}}
-function ensureAuditionAudio(){if(!origAudio){origAudio=new Audio();origAudio.preload='metadata';}if(!addedAudio){addedAudio=new Audio();addedAudio.preload='metadata';}}
-function queueAuditionSync(){if(!auditionActive)return;if(!auditionRaf)auditionRaf=requestAnimationFrame(auditionTick);}
-function auditionTick(){auditionRaf=0;if(!auditionActive)return;syncAudition();auditionDiag();if(auditionActive)auditionRaf=requestAnimationFrame(auditionTick);}
-let auditionWantPlay=false;
-let auditionDelta=null;   /* last measured audio-vs-video offset in seconds */
-function syncAudition(force){
-  if(!auditionActive||!state.source)return;
-  ensureAuditionAudio();
-  const mode=audioModeValue();
-  const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
-  const t=vid.currentTime||0;
-  /* Three-tier sync, in order of intrusiveness:
-     - under 80 ms: do nothing (below the ear's threshold; no wobble, no gaps)
-     - 80-250 ms: converge with a tiny clamped playback-rate nudge (inaudible pitch,
-       continuous sound).  This is what keeps the preview honest: the audio element
-       starts late after buffering, and a dead band alone let that ~400 ms startup lag
-       persist, so "+100 in the preview" sounded like "+500 in the export".
-     - over 250 ms (or ended / explicit action): one throttled seek.
-     Seeking every small drift was audible as stutter, so seeks stay rare. */
-  const settle=function(el,target,hardset){
-    if(!el||el.readyState<1||el.seeking)return false;   /* not ready: try again next frame */
-    /* Clamp inside the media: a target past the end makes the browser sit on the last
-       frames, which is the "end of the video plays at the start" symptom. */
-    const dur=isFinite(el.duration)?el.duration:0;
-    const tgt=dur>0?Math.max(0,Math.min(target,dur-0.05)):Math.max(0,target);
-    const d=(el.currentTime||0)-tgt;
-    const ad=Math.abs(d);
-    auditionDelta=d;
-    if(!hardset&&ad<0.005)return true;   /* aligned: another seek would only add a gap */
-    if(el.ended||hardset||force||ad>0.25){
-      const now=Date.now();
-      /* Throttled by wall-clock time so a correction never turns into machine-gun
-         seeking.  Explicit actions (onset, buttons, scrub) always go through. */
-      if(!hardset&&!force&&el.dataset.seekAt&&now-Number(el.dataset.seekAt)<1000)return true;
-      el.dataset.seekTarget=String(tgt);
-      el.dataset.seekAt=String(now);
-      try{el.currentTime=tgt;}catch(_){return false;}
-      if(el.playbackRate!==1)el.playbackRate=1;
-      if(el.ended){try{el.play().catch(function(){});}catch(_){}}
-      return true;
+function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("previewApplyBtn"))$("previewApplyBtn").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();/* Keep the state of the timing switch in plain sight: a value typed while the *//* switch is off is silently ignored by both the preview and the export. */const st=$("audioTimingState");if(st){st.textContent="この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。";}}
+/* ---------- preview proxy: bake the timing, then play ONE file ---------- */
+function setPreviewState(text,color){const el=$("previewState");if(!el)return;el.textContent=text;el.style.color=color||"";}
+function markPreviewStale(){if(!previewUrl)return;setPreviewState("未反映（設定が変更されました）","#e0a030");}
+function previewDiag(text){const el=$("previewDiag");if(el)el.textContent=text||"";}
+function previewRequestBody(){return {sourceId:state.source?state.source.id:"",variant:state.variant||"original",audioMode:audioModeValue(),audioShiftMs:state.audioShiftMs||0,addedShiftMs:state.addedShiftMs||0,addedStartMs:state.addedStartMs||0,addedSourceId:(state.addedSource&&state.addedSource.id)||null};}
+async function previewPost(body){const headers={"Content-Type":"application/json"};if(state.token)headers["X-Trim-Token"]=state.token;const r=await fetch("/api/preview/build",{method:"POST",headers,body:JSON.stringify(body)});let data=null;try{data=await r.json();}catch(e){}return {status:r.status,data:data||{}};}
+async function previewWaitJob(id){for(let i=0;i<200;i++){await new Promise(function(done){setTimeout(done,700);});const d=await api("/api/jobs/"+id,{silent:true});const j=(d&&d.job)||{};if(j.status==="done")return j.result||{};if(j.status==="error"||j.status==="cancelled")throw new Error(j.error||"生成に失敗しました");}throw new Error("生成がタイムアウトしました");}
+async function applyPreview(){
+  if(!state.source){toast("動画を読み込んでください",true);return;}
+  if(previewBusy)return;
+  previewBusy=true;const token=++previewToken;
+  const btn=$("previewApplyBtn");if(btn)btn.disabled=true;
+  try{
+    setPreviewState("生成中…");
+    let res=await previewPost(previewRequestBody());
+    if(res.status===409&&res.data&&res.data.code==="proxy_required"){
+      setPreviewState("プロキシ準備中…");
+      if(!res.data.proxyJobId)throw new Error("プロキシを準備できませんでした");
+      await previewWaitJob(res.data.proxyJobId);
+      res=await previewPost(previewRequestBody());
     }
-    if(ad>0.08){
-      const k=Math.max(-0.04,Math.min(0.04,-d*0.15));
-      const want=1+k;
-      if(Math.abs(el.playbackRate-want)>0.002)el.playbackRate=want;
-    }else if(el.playbackRate!==1){
-      el.playbackRate=1;
-    }
-    return true;
-  };
-  const follow=function(el){
-    if(!el)return;
-    if(auditionWantPlay&&!vid.paused){if(el.paused)el.play().catch(function(){});}
-    else if(auditionWantPlay&&!el.paused){el.pause();}
-  };
-  /* A track that has not started yet stays silent but keeps playing: pausing and
-     resuming on the onset is what caused audible gaps, so the volume carries the
-     silence and the onset needs exactly one seek. */
-  const handle=function(el,flag,target){
-    if(!el||!el.src)return;
-    if(target<0){
-      el.volume=0;
-      el.dataset[flag]='1';
-      /* Waiting for the onset: stay paused at the head.  Letting it play silently lets
-         it run to the end of the file, and the closing frames then leak out when the
-         track is un-muted.  One pause during silence is inaudible. */
-      if(el.playbackRate!==1)el.playbackRate=1;
-      if(!el.paused){try{el.pause();}catch(_){}}
-      if(!el.seeking&&el.readyState>=1&&(el.currentTime||0)>0.05){try{el.currentTime=0;}catch(_){}}
-      return;
-    }
-    el.volume=1;
-    const onset=el.dataset[flag]==='1';
-    /* Consume the flag only after the seek is actually issued: if the element is still
-       seeking or not ready, the next frame retries instead of silently playing the
-       track at the unshifted position. */
-    if(settle(el,target,onset)&&onset)delete el.dataset[flag];
-    follow(el);
-  };
-  handle(origAudio,'head',t-s1/1000);
-  const useAdded=!!state.addedSource&&addedModeActive(mode);
-  if(addedAudio&&useAdded&&addedAudio.src){
-    handle(addedAudio,'pre',((state.addedStartMs||0)/1000-s2/1000)+(t-(state.inUs||0)/1e6));
-  }else if(addedAudio&&!addedAudio.paused){addedAudio.pause();}
+    if(res.status===409)throw new Error("この動画はプレビュー用に準備できません");
+    if(!res.data||!res.data.ok)throw new Error((res.data&&res.data.message)||"生成を開始できませんでした");
+    let meta=res.data;
+    if(meta.jobId)meta=await previewWaitJob(meta.jobId);
+    if(token!==previewToken)return;
+    if(!meta.url)throw new Error("生成結果にURLがありません");
+    loadPreviewSource(meta.url,(meta.sourceTimelineOffsetUs||0)-(meta.outputStartOffsetUs||0));
+    previewUrl=meta.url;
+    const rv=$("previewRevertBtn");if(rv)rv.hidden=false;
+    setPreviewState("反映済み・タップで再生","#2f9e44");
+    previewDiag("音声タイミング反映済み（映像加工は書き出し時のみ）");
+  }catch(err){
+    setPreviewState("失敗","#e03131");
+    toast("プレビューに反映できませんでした: "+((err&&err.message)?err.message:"不明なエラー"),true);
+  }finally{previewBusy=false;if(btn)btn.disabled=false;}
 }
-function startAudition(){
-  if(!($("auditionToggle")&&$("auditionToggle").checked))return;
-  if(auditionActive)return;
-  if(!state.source){toast('動画を読み込んでください',true);return;}
-  if(audioModeValue()==='mute'){toast('消音中は確認できません',true);return;}
-  ensureAuditionAudio();
-  const mode=audioModeValue();
-  const audSrc=(vid.currentSrc||vid.src||('/api/sources/'+state.source.id+'/media'));
-  if(origAudio.getAttribute('data-src')!==audSrc){origAudio.src=audSrc;origAudio.setAttribute('data-src',audSrc);}
-  const useAdded=!!state.addedSource&&addedModeActive(mode);
-  if(useAdded){
-    const ap='/api/sources/'+state.addedSource.id+'/media';
-    const aid=state.addedSource.id;
-    if(addedAudio.getAttribute('data-src')!==ap){addedAudio.src=ap;addedAudio.setAttribute('data-src',ap);}
-    if(!addedAudio.getAttribute('data-fallback')){addedAudio.setAttribute('data-fallback','1');addedAudio.onerror=function(){this.src='/api/sources/'+aid+'/media?variant=original';if(!vid.paused){try{this.play().catch(function(){});}catch(_){}}};}
-  }else{
-    addedAudio.removeAttribute('data-src');
-    addedAudio.removeAttribute('src');
-    try{addedAudio.load();}catch(_){}
-  }
-  origAudio.volume=1;addedAudio.muted=false;addedAudio.volume=1;
-  origAudio.playbackRate=1;addedAudio.playbackRate=1;
-  auditionWantPlay=true;
-  const t0=vid.currentTime||0;
-  const s1=state.audioShiftMs||0,s2=state.addedShiftMs||0;
-  const oTarget=t0-s1/1000;
-  const local=t0-(state.inUs||0)/1e6;
-  const base=(state.addedStartMs||0)/1000-s2/1000;
-  const align=function(el,target){
-    const apply=function(){
-      try{el.currentTime=Math.max(0,target);el.dataset.seekTarget=String(Math.max(0,target));el.dataset.seekAt=String(Date.now());}catch(_){}
-    };
-    if(el.readyState>=1)apply();
-    else el.addEventListener('loadedmetadata',apply,{once:true});
-  };
-  if(oTarget<0){origAudio.volume=0;origAudio.dataset.head='1';}
-  else{origAudio.volume=1;delete origAudio.dataset.head;align(origAudio,oTarget);}
-  if(useAdded){
-    const aTarget=base+Math.max(0,local);
-    const held=base+local<0;
-    if(held){addedAudio.volume=0;addedAudio.dataset.pre='1';}
-    else{addedAudio.volume=1;delete addedAudio.dataset.pre;align(addedAudio,aTarget);}
-  }
-  ensureAudioGraph();
-  if(auditionCtx&&auditionCtx.state==='suspended'){try{auditionCtx.resume();}catch(_){}}
-  auditionActive=true;
-  applyAuditionMute();
-  /* The audio was positioned above (align); play it at once.  Waiting for a seek
-     event here proved fragile across browsers (a missed event left everything paused
-     and the user heard only a blip).  Any startup lag is picked up by the regular
-     sync below, which corrects real offsets within a second. */
-  setAuditionToggle(true);
-  syncAudition(true);queueAuditionSync();auditionDiag(true);
+function loadPreviewSource(url,offsetUs){
+  previewOffsetUs=offsetUs||0;
+  const t=Math.max(0,(vid.currentTime||0)-previewOffsetUs/1e6);const wasPlaying=!vid.paused;
+  if(!previewUrl)previewOrigSrc=vid.currentSrc||vid.src||"";
+  vid.pause();
+  vid.src=url;vid.load();
+  vid.addEventListener("loadedmetadata",function(){try{vid.currentTime=Math.max(0,Math.min(t,vid.duration||t));}catch(e){}previewDiag("反映済み。タップで再生してください"+(wasPlaying?"（再生中でした）":""));},{once:true});
+  /* iOS: never call play() here - the async job completion lost the user gesture. */
 }
-function setAuditionToggle(on){const t=$("auditionToggle"),s=$("auditionState"),b=$("audioTimingBox");if(t){t.checked=!!on;t.setAttribute('aria-expanded',on?'true':'false');}if(s)s.textContent=on?'ON':'OFF';if(b)b.hidden=!on;}
-function stopAudition(){auditionActive=false;auditionWantPlay=false;auditionDiag(true);if(auditionRaf){cancelAnimationFrame(auditionRaf);auditionRaf=0;}if(origAudio){try{origAudio.pause();origAudio.playbackRate=1;}catch(_){}}if(addedAudio){try{addedAudio.pause();addedAudio.playbackRate=1;}catch(_){}}vid.muted=false;
-  /* Keep the master switch as it is: stopping playback is not the same as disabling
-     the timing settings.  Clearing it here made an export silently drop the shift
-     whenever the user had previewed first (stop -> switch OFF -> export ignores it). */
-  setAuditionToggle(!!($("auditionToggle")&&$("auditionToggle").checked));}
-function toggleAudition(){if(auditionActive)stopAudition();else startAudition();}
+function revertPreview(){
+  if(!previewUrl)return;
+  const t=Math.max(0,(vid.currentTime||0)+previewOffsetUs/1e6);vid.pause();
+  const back=previewOrigSrc||(state.source?("/api/sources/"+state.source.id+"/media"):"");
+  previewUrl=null;
+  vid.src=back;vid.load();
+  vid.addEventListener("loadedmetadata",function(){try{vid.currentTime=t;}catch(e){}},{once:true});
+  const rv=$("previewRevertBtn");if(rv)rv.hidden=true;
+  setPreviewState("未反映");previewDiag("");
+}
+
 function setSyncStatus(t){if($("syncStatus"))$("syncStatus").textContent=t||'';}
 function firstNumber(){for(let i=0;i<arguments.length;i++){const n=parseFloat(arguments[i]);if(isFinite(n))return n;}return null;}
 function handleSyncResult(r){r=r||{};const ok=r.ok===undefined?true:!!r.ok;const ms=firstNumber(r.shiftMs,r.offsetMs,r.deltaMs,r.estimateMs,r.ms,r.value);const conf=firstNumber(r.confidence,r.score,r.certainty,r.reliability,null);if(!ok||ms==null){$("syncResult").hidden=true;setSyncStatus('');$("syncManualErr").hidden=false;$("audioSyncBtn").disabled=false;return;}lastSyncShift=Math.round(ms);$("syncResultText").textContent='推定 '+lastSyncShift+'ms（信頼度 '+(conf==null?'—':conf)+'）';$("syncResult").hidden=false;$("syncManualErr").hidden=true;setSyncStatus('');$("audioSyncBtn").disabled=false;}
 function pollSyncJob(id){if(syncTimer){clearInterval(syncTimer);syncTimer=null;}let n=0;syncTimer=setInterval(async()=>{n++;if(n>120){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('タイムアウト');return;}try{const d=await api('/api/jobs/'+id,{silent:true});const j=d.job||{};if(j.status==='done'){clearInterval(syncTimer);syncTimer=null;handleSyncResult(j.result||{});}else if(j.status==='error'||j.status==='cancelled'){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus(j.error||'失敗');}}catch(_){}},1000);}
 async function autoSync(){if(!state.source||!state.addedSource){toast('追加音声を選択してください',true);return;}if(!addedModeActive()){toast('追加音声を使うモードを選択してください',true);return;}const btn=$("audioSyncBtn");if(btn)btn.disabled=true;$("syncResult").hidden=true;$("syncManualErr").hidden=true;setSyncStatus('同期中…');try{const d=await api('/api/audio/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceId:state.source.id,addedSourceId:state.addedSource.id,startUs:Math.round(state.inUs),windowMs:20000,rangeMs:3000,windows:3})});pollSyncJob(d.jobId);}catch(e){$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('同期要求失敗');}}
-const _selectSource=selectSource;selectSource=async function(id){await _selectSource(id);stopAudition();updateAudioUI();};
+const _selectSource=selectSource;selectSource=async function(id){await _selectSource(id);updateAudioUI();};
 const _openLocal=openLocal;openLocal=async function(path){if(pendingAddedOpen){pendingAddedOpen=false;clearErr();try{const d=await api('/api/sources/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});state.addedSource=d.source;hideBrowse();renderAddedInfo();updateAudioUI();toast('追加音声を読み込み: '+(d.source.name||''));}catch(e){showErr('追加音声を開けませんでした: '+e.message);}return;}await _openLocal(path);};
 const _doUpload=doUpload;doUpload=async function(file){if(pendingAddedUpload){pendingAddedUpload=false;clearErr();toast('追加音声をアップロード中…');const fd=new FormData();fd.append('file',file);try{const d=await api('/api/sources/upload',{method:'POST',body:fd,timeoutMs:1800000});state.addedSource=d.source;renderAddedInfo();updateAudioUI();toast('追加音声を追加: '+(d.source.name||''));}catch(e){showErr('追加音声のアップロード失敗: '+e.message);}return;}await _doUpload(file);};
 const _hideBrowse=hideBrowse;hideBrowse=function(){pendingAddedOpen=false;pendingAddedUpload=false;_hideBrowse();};
-document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventListener('change',()=>{stopAudition();saveSettings();updateAudioUI();}));
-['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const live=$(target==='orig'?'origShiftVal':'addedShiftVal');if(live)live.textContent=msLabel(c);if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();if(auditionActive){syncAudition(true);queueAuditionSync();}});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
+document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventListener('change',()=>{saveSettings();updateAudioUI();markPreviewStale();}));
+['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const live=$(target==='orig'?'origShiftVal':'addedShiftVal');if(live)live.textContent=msLabel(c);if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();markPreviewStale();});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
   /* The sliders are relative jog controls: the centre always means the value in
      use, so dragging right/left nudges it instead of jumping to an absolute ms. */
   [['origShiftFine','orig'],['addedShiftFine','added'],['origShiftRange','orig'],['addedShiftRange','added']].forEach(function(pair){
@@ -1927,20 +1785,15 @@ document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventL
   });
 
 document.querySelectorAll('[data-shift]').forEach(b=>b.addEventListener('click',()=>{setAudioShift(b.dataset.shift,audioShiftValue(b.dataset.shift)+(parseInt(b.dataset.delta,10)||0));}));
-if($("addedStartInp"))$("addedStartInp").addEventListener('input',()=>{state.addedStartMs=startMsVal($("addedStartInp").value);saveSettings();if(auditionActive){syncAudition(true);queueAuditionSync();}});
+if($("addedStartInp"))$("addedStartInp").addEventListener('input',()=>{state.addedStartMs=startMsVal($("addedStartInp").value);saveSettings();markPreviewStale();});
 if($("addedReencodeChk"))$("addedReencodeChk").addEventListener('change',saveSettings);
 if($("audioSyncBtn"))$("audioSyncBtn").addEventListener('click',autoSync);
 if($("useSyncBtn"))$("useSyncBtn").addEventListener('click',()=>{setAudioShift('added',lastSyncShift);$("syncResult").hidden=true;toast('追加音声のずらしを設定しました');});
 if($("addedBrowseBtn"))$("addedBrowseBtn").addEventListener('click',()=>{if($("addedBrowseBtn").disabled)return;pendingAddedOpen=true;pickDir=false;pickAction=null;pickSource=null;pickLut=false;$("useDirBtn").textContent='このフォルダを使う';$("useDirBtn").style.display='none';$("browseTitle").textContent='追加する音声を選択';openBrowse();});
 if($("addedFileInput"))$("addedFileInput").addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f){pendingAddedUpload=true;doUpload(f);e.target.value='';}});
-if($("auditionToggle"))$("auditionToggle").addEventListener('change',e=>{if(e.target.checked){startAudition();setAuditionToggle(auditionActive);}else{stopAudition();setAuditionToggle(false);}});
-if($("abCompareChk"))$("abCompareChk").addEventListener('change',()=>{applyAuditionMute();if(auditionActive){syncAudition(true);queueAuditionSync();}});
-if($("muteOrigAuditionChk"))$("muteOrigAuditionChk").addEventListener('change',()=>{applyAuditionMute();});
-vid.addEventListener('play',()=>{if(auditionActive)syncAudition(true);queueAuditionSync();});
-vid.addEventListener('pause',()=>{if(auditionActive)syncAudition(true);});
-vid.addEventListener('seeked',()=>{if(auditionActive)syncAudition(true);queueAuditionSync();});
-document.addEventListener('visibilitychange',()=>{if(!auditionActive)return;if(document.hidden){if(origAudio&&!origAudio.paused)origAudio.pause();if(addedAudio&&!addedAudio.paused)addedAudio.pause();}else{queueAuditionSync();}});
-applyUiZoom(currentUiZoom());updateAudioUI();setAudioShift('orig',state.audioShiftMs||0);setAudioShift('added',state.addedShiftMs||0);setAuditionToggle(false);auditionDiag(true);setInterval(function(){auditionDiag();},500);
+if($("previewApplyBtn"))$("previewApplyBtn").addEventListener('click',applyPreview);
+if($("previewRevertBtn"))$("previewRevertBtn").addEventListener('click',revertPreview);
+applyUiZoom(currentUiZoom());updateAudioUI();setAudioShift('orig',state.audioShiftMs||0);setAudioShift('added',state.addedShiftMs||0);setPreviewState('未反映');if($('previewRevertBtn'))$('previewRevertBtn').hidden=true;
 $("spinEscape").addEventListener("click",releaseSpinner);
 
 /* reveal */

@@ -309,3 +309,61 @@ Agy:
 - 実績: `require_current` が**旧ビルドのサーバを検出してテストを停止**（従来なら旧コードを検証して「合格」と誤報告していた）。
 - 経過: 第1回 条件付きGo → 全条件実装 → 第2〜4回は証跡不足を含む条件付きGo → **第5回 完全Go（ゲート合格）**。
 - この間に追加した資産: 内容レベル同期オラクル（マーカー素材）、独立パケット格子オラクル、DOM挙動テスト30件、非機能E2E、ビルド/ffmpeg 同一性の照合、デバッグログ（7日保持）。
+
+## プレビュー方式変更（単一video＋書き出しプロキシ）（2026-11-10・第1〜15ラウンド）
+
+| ラウンド | レビュアー1 | レビュアー2 | レビュアー3 |
+|---|---|---|---|
+| 1 | GLM: 条件付きGo | Agy: 条件付きGo | Qwen: 条件付きGo |
+| 2 | GLM: 条件付きGo | Agy: 条件付きGo | Qwen: 条件付きGo |
+| 3 | GLM: 条件付きGo | Agy: 条件付きGo | Qwen: 条件付きGo |
+| 4 | GLM: 条件付きGo | **Agy: 完全Go** | Qwen: 条件付きGo |
+| 5 | GLM: 条件付きGo | Agy: 条件付きGo | Qwen: 条件付きGo |
+| 6 | GLM: 条件付きGo | **Agy: 完全Go** | Qwen: 条件付きGo |
+| 7 | GLM: 条件付きGo | **Agy: 完全Go** | **Qwen: 完全Go** |
+| 8 | GLM: 条件付きGo | **Agy: 完全Go** | Qwen: 条件付きGo |
+| 9 | GLM: 条件付きGo | Agy: 条件付きGo | **Qwen: 完全Go** |
+| 10 | GLM: 条件付きGo | **Agy: 完全Go** | **Qwen: 完全Go** |
+| 11 | GLM: 条件付きGo | **Agy: 完全Go** | Qwen: 条件付きGo |
+| 12 | GLM: 条件付きGo | Agy: 条件付きGo | Qwen: 条件付きGo |
+| 13 | GLM: 条件付きGo | Agy: 条件付きGo | Qwen: 条件付きGo |
+| 14 | **GLM: 完全Go** | Agy: 条件付きGo | Qwen: 条件付きGo |
+| 15 | **GLM: 完全Go**（要約版） | **Agy: 完全Go** | **Qwen: 完全Go** |
+
+- 対象: `docs/PLAN_PREVIEW_PROXY.md`（v0.1 → v2.8）
+- 結果: **三者完全Go**（Agy: v2.5/v2.6/v2.7, GLM: v2.4/v2.5/v2.6要約, Qwen: v2.6/**v2.9**）。最終確認は v2.9 で全員が完全Go。
+- 備考: GLM は NVIDIA NIM の HTTP 504 が頻発したため、終盤は**要約版プロンプト**でレビューを実施。予備モデル（nemotron-3-ultra・承認済み）は v1.0/v1.3 でも完全Goを返し、判定の裏付けとした。
+- 証跡: `review/agy_plan*.md`, `review/glm_plan*.md`, `review/qwen_plan*.md`, `review/*_final*.md`
+
+## プレビュー方式変更の成果物レビュー（2026-11-10・第1〜9ラウンド）
+
+| ラウンド | Agy gemini-3.8-flash-high | Qwen3.8 | GLM 5.3 Flash |
+|---|---|---|---|
+| 1 | 条件付きGo（Critical 2） | 条件付きGo（Critical） | 条件付きGo（Major） |
+| 2 | 条件付きGo（Critical 1） | 条件付きGo（Critical 1） | 条件付きGo（Major 2） |
+| 3 | 条件付きGo（Major 2） | 条件付きGo（Critical 2） | 却下（プロンプト切断で実装未提示） |
+| 4 | **完全Go** | 条件付きGo（Major 1） | 条件付きGo（Major 2） |
+| 5 | **完全Go** | 条件付きGo（Major 2） | **完全Go** |
+| 6 | **完全Go** | 条件付きGo（Major 1） | （実行失敗） |
+| 7 | **完全Go** | 条件付きGo（Major 1） | 条件付きGo（Major 1） |
+| 8 | **完全Go** | 条件付きGo（Major 1） | 条件付きGo（Major 1） |
+| **9** | **完全Go** | **完全Go** | **完全Go** |
+
+- 結果: **第9ラウンドで三者完全Go（同一成果物）**。
+- レビューで見つかり修正した実バグ: amix構文不正／共通後段(apad+atrim)脱落／variant判定fail-open／`.part`競合と失敗時残留／MP4ストリーム順（音声先行）／added音声未検証／負シフトのPTS再原点化欠落／proxy時の相対オフセット座標系／contentSigの弱さ／読み取り不能・probe失敗のエラー化／Windows長パス未統一。
+- 証跡: review/agy_artifact*.md, review/qwen_artifact*.md, review/glm_artifact*.md
+
+## プレビュー方式変更のテスト設計レビュー（GLM 5.3 Flash・第1〜5回）
+
+| 回 | 判定 | 主な指摘 | 対応 |
+|---|---|---|---|
+| 1 | 条件付きGo | 検証項目とテストの対応が不明／framemd5 のオラクル不明確／残存リスク台帳の分断／トラバーサル未定義／LRU 競合未検証 | 検証項目⇔テスト対応表を新設、framemd5 は内容比較と明記、§11 に残存リスクを集約、キー検証と LRU のテストを追加 |
+| 2 | 条件付きGo（Major4・Minor4） | 台帳の再分断／並行ビルドのテスト欠落／cleanup 保護の未検証／.part 削除がコードレビュー依存／表記ゆれ・PTS 取扱い・SKIP 空洞化・初回生成時間 | すべて実装（下記） |
+| 3 | 条件付きGo（Major2・Minor4） | **.part 削除テストが fail-fast 経路に素通り**／並行ビルドのオラクルが空振り合格し得る（Minor: framemd5 の prefix 比較／§8 非機能段落の文意／§11 P1 の片方向参照／strict SKIP の適用範囲） | fail-fast と ffmpeg 起動後の失敗経路を分離（ランナー差し替え）、Barrier＋ユニークキー＋ジョブ件数で並行テストを強化、framemd5 を全フレーム一致に |
+| 4 | 条件付きGo（Major1・Minor4） | 並行ビルドの **OK 行が実行ログに無い**（証跡不足）／時計由来シフトの400秒周期／.part 競合／SKIP ガードの範囲／`/api/jobs` の token 欠落 | 全スイートのチェック名付きログを提出、run token を uuid4 化、消失を5秒ポーリング、ガードの根拠明記、token 付与 |
+| **5** | **完全Go** | 残存 Minor のみ（いずれも出荷阻害なし） | 任意対応: 二重タップ抑止の DOM テスト追加・sync 側の unique_shift も uuid4 化・token の意味論を §8 に注記 |
+
+- 対象: `docs/TEST_DESIGN.md`（プレビュー方式変更の節・§8・§11）＋ `tests/` の実物。
+- 実行ログの証跡: フィルタ(14)／同期・framemd5・mid-build(18)／キャッシュ・cleanup(26)／E2E(11)／静的ガード／DOM挙動(28) がすべて OK。
+- このレビューで追加した資産: ffmpeg 起動後失敗経路の再現テスト（ランナー差し替え＋.part 検証）、Barrier による並行ビルド検証（uuid token でキャッシュキーを一意化＋ジョブ件数一致）、cleanup の実行中ジョブ保護テスト、SKIP 静的ガード（strict モード）、framemd5 全フレーム一致、反映ボタン二重タップ抑止の DOM テスト。
+- **3つのゲート（計画・成果物・テスト設計）すべて完全Go で通過**。

@@ -247,35 +247,25 @@ check("audio: 1ms controls", qwen.count("data-delta='-1'") == 2 and qwen.count("
 check("audio: fine slider and readout", "id='origShiftFine'" in qwen and "id='addedShiftFine'" in qwen and "id='origShiftVal'" in qwen and "function msLabel(" in qwen)
 check("audio: added track controls", "id='addedBrowseBtn'" in qwen and "id='addedFileInput'" in qwen and "id='addedInfo'" in qwen and "id='addedReencodeChk'" in qwen)
 check("audio: auto sync wiring", "id='audioSyncBtn'" in qwen and "/api/audio/sync" in qwen and "d.job||{}" in qwen and "function pollSyncJob(" in qwen)
-check("audio: preview toggle wiring", "id='auditionToggle'" in qwen and "id='auditionState'" in qwen and "音声タイミング調整" in qwen and "function syncAudition(" in qwen and "id='muteOrigAuditionChk'" in qwen)
-check("audio: audition formula", "vid.currentTime-(state.audioShiftMs||0)/1000" in qwen or "t-s1/1000" in qwen)
-check("audio: audition resync", "requestAnimationFrame(auditionTick)" in qwen and "visibilitychange" in qwen)
+check("audio: preview apply/revert wiring",
+      "id='previewApplyBtn'" in qwen and "id='previewRevertBtn'" in qwen
+      and "function applyPreview(" in qwen and "function revertPreview(" in qwen
+      and "/api/preview/build" in qwen and "id='previewState'" in qwen)
+check("audio: the live preview engine is gone",
+      "syncAudition" not in qwen and "createMediaElementSource" not in qwen
+      and "new Audio(" not in qwen and "auditionToggle" not in qwen
+      and "muteOrigAuditionChk" not in qwen and "abCompareChk" not in qwen
+      and "o.audioTiming=" not in qwen)
+check("audio: applying a preview never calls play()",
+      "function loadPreviewSource(" in qwen
+      and "vid.play(" not in qwen.split("function loadPreviewSource(")[1].split("function revertPreview(")[0])
+check("audio: a changed value marks the preview stale",
+      "function markPreviewStale(" in qwen and "markPreviewStale();}" in qwen)
+check("audio: the preview state is reported",
+      "id='previewDiag'" in qwen and "音声タイミング反映済み" in qwen)
 check("audio: settings persistence", "audioMode:modeRadio?modeRadio.value" in qwen and "addedShiftMs" in qwen and "addedReencode" in qwen)
 check("audio: export payload", "o.audioMode=am" in qwen and "o.addedSourceId=" in qwen and "o.addedShiftMs=" in qwen and "o.addedStartMs=" in qwen and "o.addedReencode=" in qwen)
-check("audio: no media reload on start", "origAudio.getAttribute('data-src')!==audSrc" in qwen and "addedAudio.getAttribute('data-src')!==ap" in qwen)
-check("audio: never seeks while loading", "el.readyState<1||el.seeking" in qwen)
-check("audio: three-tier sync (do nothing / rate nudge / rare seek)",
-      "ad>0.25" in qwen and "ad>0.08" in qwen
-      and "Math.max(-0.04,Math.min(0.04,-d*0.15))" in qwen
-      and "now-Number(el.dataset.seekAt)<1000" in qwen
-      and "ad<0.005" in qwen)
-check("audio: rate nudge is bounded and reset once aligned",
-      "const want=1+k;" in qwen and "el.playbackRate=1;" in qwen
-      and "-d*0.5" not in qwen and "seekFails" not in qwen and "kicked" not in qwen)
-check("audio: preview clamps seeks and never parks on the last frames",
-      "Math.min(target,dur-0.05)" in qwen and "el.ended||hardset||force||ad>0.25" in qwen
-      and "el.currentTime=0;" in qwen and "el.pause();" in qwen)
-check("audio: preview shows the live sync error", "映像とのずれ" in qwen and "auditionDelta" in qwen)
 check("audio: the preview UI removals", "auditionBar" not in qwen and "barStopBtn" not in qwen and "data-bar" not in qwen and "abHoldBtn" not in qwen and "testToneBtn" not in qwen and "playTestTone" not in qwen and "auditionBtn" not in qwen)
-check("audio: L/R split capability kept", "function ensureAudioGraph(" in qwen and "createStereoPanner" in qwen)
-check("audio: single alignment after metadata", "addEventListener('loadedmetadata',apply,{once:true})" in qwen)
-check("audio: overlay routing only when meaningful", "function applyAuditionMute()" in qwen and "origSilent&&!overlay" in qwen and "vid.muted=!(overlay&&!origSilent);" in qwen and "abCompare=" not in qwen and "abCompare?" not in qwen and "volume" not in qwen[qwen.index("function applyAuditionMute()"):qwen.index("function applyAuditionMute()")+430])
-_sa = qwen[qwen.index("function startAudition("):qwen.index("function stopAudition(")]
-check("audio: preview never starts the video", "vid.play(" not in _sa)
-check("audio: toggle sits between the mode and the shift", qwen.index("id='auditionToggle'") > qwen.index("name='audioModeRadio'") and qwen.index("id='auditionToggle'") < qwen.index("id='origShiftBox'"))
-check("audio: audition starts a paused track via follow", "const follow=function(el)" in qwen and "if(el.paused)el.play()" in qwen and "function startAudition()" in qwen)
-check("audio: added url falls back to the original variant", "addedAudio.onerror=function()" in qwen and "variant=original" in qwen)
-check("audio: overlay toggle keeps the video audible", "id='abCompareChk'" in qwen and "vid.muted=!(" in qwen)
 
 
 # 25) unlimited shift + relative jog sliders
@@ -289,28 +279,27 @@ check("shift: both jog sizes follow the enable rules", "$(\"origShiftFine\").dis
 check("shift: the stale clamp helper is gone", "setClampMs" not in qwen and "const setShiftInp=" in qwen)
 check("shift: hints explain the centre", qwen.count("中央＝現在の値") >= 4)
 
-check("audio: delayed original is silent at the head", "origAudio.dataset.head" in qwen and 'if(oTarget<0)' in qwen)
-check("audio: added track is held before IN", "addedAudio.dataset.pre" in qwen and "addedAudio.volume=0" in qwen)
-check("audio: added alignment matches the sync formula", "base+Math.max(0,local)" in qwen and "(state.addedStartMs||0)/1000-s2/1000" in qwen)
-check("audio: added source cleared safely", "addedAudio.removeAttribute('src')" in qwen and "addedAudio.load()" in qwen)
-check("audio: error closure captures the id", "const aid=state.addedSource.id;" in qwen)
 check("jog: pointercancel resets", "el.addEventListener('pointercancel',end);" in qwen and "touchstart" not in qwen)
-check("audio: context state watched", "auditionCtx.onstatechange" in qwen and "ctx=" in qwen)
-check("audio timing: settings hidden until ON", "id='audioTimingBox' hidden" in qwen and "b.hidden=!on" in qwen and "if(b)b.hidden=!on;" in qwen)
-check("audio timing: payload carries the switch", "o.audioTiming=!!($(\"auditionToggle\")&&$(\"auditionToggle\").checked);" in qwen)
-check("audio timing: stopping the preview must not clear the master switch",
-      "vid.muted=false;setAuditionToggle(false);}" not in qwen
-      and 'setAuditionToggle(!!($("auditionToggle")&&$("auditionToggle").checked));}' in qwen)
 check("qwen: the opened file name is shown in full", ".src-name{font-weight:700;font-size:15px;white-space:normal" in qwen and "text-overflow:ellipsis;white-space:nowrap" not in qwen.split(".src-name{")[1].split("}")[0])
 check("qwen: the player verdict beats the conservative server list", "state.directPlayable=true;" in qwen and "vid.videoWidth>0" in qwen)
 check("qwen: the play notice names the real reason", "10bit" in qwen and "再生できる場合もあります" in qwen)
 check("audio timing: the added re-encode is explained", "addedReencodeHint" in qwen and "追加した音声のみ再エンコード</label>" in qwen)
 check("audio timing: the jog never takes an absolute value", "function setAudioShift(target,v,fromJog)" in qwen and "if(rng)rng.value=v;" not in qwen and "if(fine)fine.value=Math.max(-100,Math.min(100,v));" not in qwen and "setAudioShift(target,base+(parseInt(el.value,10)||0),true)" in qwen)
-check("audio: silence is carried by volume, not by pausing", "el.dataset[flag]='1';follow(el);" in qwen or ("el.dataset[flag]='1';" in qwen and "if(!el.paused)el.pause();" not in qwen.split("const handle=function(el,flag,target){")[1].split("handle(origAudio")[0]))
-check("audio timing: one mute listener only", qwen.count("muteOrigAuditionChk\").addEventListener('change'") == 1)
-check("audio timing: silence is explained", "動画を再生すると聴こえます" in qwen and "ずらしが動画の長さを超えているため無音です" in qwen)
 check("qwen: explorer rows show shot/update/create dates", "span.dt" in qwen and "fmtDate(en.mtimeMs)" in qwen and "fillShotDates" in qwen and "/api/media-dates" in qwen)
 check("qwen: source detail shows the three dates", "撮影日" in qwen and "s.shotAtMs" in qwen and "s.fileCtimeMs" in qwen and "s.fileMtimeMs" in qwen)
 check("qwen: explorer sorts by name or mtime", "id=\"sortSel\"" in qwen and "mtimeDesc" in qwen and "browseTo(browsePath)" in qwen)
+
+# 26) test hygiene: the preview E2E may only skip through the strict helper.
+# Scope: literal occurrences inside tests/e2e_preview_api.py only (the older e2e files
+# keep the historical SKIP convention). The counts are exact by design: "return skip("
+# appears once per skip site (4 today) and "return 0" only inside the helper, so a new
+# ad-hoc skip has to update this guard as well.
+e2e_preview = read(ROOT + r"\tests\e2e_preview_api.py")
+check("e2e: every skip goes through the strict helper",
+      e2e_preview.count('print("RESULT: SKIP') == 1
+      and e2e_preview.count("return skip(") == 4
+      and e2e_preview.count("return 0") == 1
+      and "RESULT: FAIL (strict mode:" in e2e_preview)
+
 print("RESULT:", "OK" if fails == 0 else "FAIL(%d)" % fails)
 sys.exit(0 if fails == 0 else 1)
