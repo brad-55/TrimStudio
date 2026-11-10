@@ -149,7 +149,8 @@ Only devices that joined the same tailnet can connect.
 
 ### Remembered settings and start folders
 
-- The mode, container, output folder, encoder, bitrate, LUT, stabilizer, audio re-encode, IN/OUT settings and crop values are **remembered by the browser** and restored the next time you open it.
+- The mode, container, output folder, encoder, bitrate, LUT, stabilizer, audio re-encode, IN/OUT settings, **display zoom** (top right of the header) and crop values are **remembered by the browser** and restored the next time you open it. A remembered crop is restored only for the same video (adjusted to its size); it is not carried over to another video.
+- **Audio timing (mode, shift, extra track, extra-track re-encode) is per video**: opening another video resets it to "original only, 0 ms, no extra track, re-encode off", so a correction meant for one clip is never applied to another (it is not part of the remembered settings).
 - **Choose from PC** opens **your Windows Videos folder**.
 - **Browse** next to the output folder opens the **folder you used last time**.
 
@@ -302,12 +303,13 @@ To change settings, copy `config.example.json` to `config.json` and edit it. Mai
 
 You can shift the audio later or earlier to fix lip-sync drift while keeping the cut **lossless** (packet copy).
 
-- Turn on the **audio timing adjustment** switch to reveal the settings (when it is off, the values are kept but ignored by both the preview and the export).
+- Use the **audio timing** panel to set the original audio shift, the extra track and the mode.
 - **Original audio shift**: type a value in ms (no upper limit) or use the **relative slider whose centre is the current value**. Positive delays, negative advances.
 - **Extra audio track**: add the audio of another file, with its own start position (ms) and shift.
 - **Auto sync**: analyses the two tracks and proposes an offset (several windows of a few seconds each).
 - **Modes**: original only / extra only / both tracks (two lossless tracks) / mix (audio is re-encoded) / mute.
 - **Applying a preview**: the timing is baked into a **preview-only file (proxy)** that plays as ONE video. After changing a setting, press **Apply to preview** (the button is disabled while it is being generated). Until you do, the original audio plays, so the shift is not audible yet. **Revert** goes back to the original playback.
+- **Opening another video resets the timing**: it is a per-video value, so a new video starts again at original only / 0 ms (it is not part of the remembered settings).
 - The exported audio packets stay bit-identical to the source when shifting; only the mix mode re-encodes audio.
 
 

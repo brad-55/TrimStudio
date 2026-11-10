@@ -3,139 +3,13 @@
 // The inline script runs in a VM with a DOM stub that keeps element identity and records
 // event handlers, so the REAL handlers are driven instead of pattern-matching the source.
 // The sync loop is stepped frame by frame with a controllable clock.
-const fs = require("fs");
-const vm = require("vm");
-const target = process.argv[2] || "web-qwen/index.html";
-
+const { load } = require("./_ui_harness.js");
 let fails = 0;
 function check(label, cond, detail) {
   console.log((cond ? "OK   " : "FAIL ") + label + (cond ? "" : "  " + (detail === undefined ? "" : detail)));
   if (!cond) { fails++; }
 }
 
-function load() {
-  const els = new Map();
-  function el(id) {
-    if (els.has(id)) { return els.get(id); }
-    const e = {
-      id, style: {}, dataset: {}, value: "", textContent: "", innerHTML: "", hidden: false,
-      checked: false, disabled: false, className: "", src: "", type: "", name: "",
-      _h: {}, _plays: 0, _pauses: 0,
-      addEventListener(type, fn) { (this._h[type] = this._h[type] || []).push(fn); },
-      removeEventListener() {},
-      setAttribute(k, v) { this["attr_" + k] = v; if (k === "src") { this.src = v; } },
-      getAttribute(k) { return this["attr_" + k] === undefined ? null : this["attr_" + k]; },
-      removeAttribute(k) { delete this["attr_" + k]; },
-      dispatch(type, ev) {
-        (this._h[type] || []).forEach((f) => f(Object.assign({ target: this, preventDefault() {}, stopPropagation() {} }, ev || {})));
-      },
-      querySelector() { return el(id + ":q"); }, querySelectorAll() { return []; },
-      appendChild() {}, removeChild() {}, remove() {}, focus() {}, click() {}, load() {},
-      getBoundingClientRect() { return { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }; },
-      classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-      play() { this._plays++; this.paused = false; return { catch() {} }; },
-      pause() { this._pauses++; this.paused = true; },
-      getContext() { return null; },
-      setPointerCapture() {}, releasePointerCapture() {},
-    };
-    els.set(id, e);
-    return e;
-  }
-  const radios = ["original", "added", "bothTracks", "bothMix", "mute"].map((v) => {
-    const r = el("radio:" + v); r.value = v; r.name = "audioModeRadio"; r.checked = (v === "original"); return r;
-  });
-  const shiftButtons = [];
-  ["orig", "added"].forEach((t) => [-1000, -100, -10, 10, 100, 1000].forEach((d) => {
-    const b = el("btn:" + t + ":" + d); b.dataset = { shift: t, delta: String(d) }; shiftButtons.push(b);
-  }));
-  const document = {
-    getElementById: (id) => el(id),
-    querySelector(sel) {
-      if (sel.indexOf("audioModeRadio") >= 0) { return radios.filter((r) => r.checked)[0] || null; }
-      return el("sel:" + sel);
-    },
-    querySelectorAll(sel) {
-      if (sel.indexOf("audioModeRadio") >= 0) { return radios; }
-      if (sel.indexOf("[data-shift") >= 0) {
-        const m = sel.match(/data-shift="(orig|added)"/);
-        return m ? shiftButtons.filter((b) => b.dataset.shift === m[1]) : shiftButtons;
-      }
-      return [];
-    },
-    createElement: () => el("created:" + Math.random()),
-    addEventListener() {}, body: el("body"),
-    documentElement: { clientWidth: 360, scrollWidth: 360, style: {} },
-  };
-  // audio elements record every seek, rate change and pause so the loop can be judged
-  const audios = [];
-  function FakeAudio() {
-    this.paused = true; this.volume = 1; this.muted = false; this.src = ""; this.readyState = 1;
-    this.duration = 12; this.preload = ""; this.dataset = {}; this._writes = []; this._plays = 0;
-    this._pauses = 0; this._rate = 1; this._h = {}; this._ct = 0;
-    const self = this;
-    Object.defineProperty(this, "currentTime", {
-      get() { return self._ct; },
-      set(v) { self._writes.push(v); self._ct = v; },
-    });
-    Object.defineProperty(this, "playbackRate", {
-      get() { return self._rate; },
-      set(v) { self._rate = v; },
-    });
-    this.addEventListener = function (t, f) { (self._h[t] = self._h[t] || []).push(f); };
-    this.removeEventListener = function () {};
-    this.setAttribute = function (k, v) { self["attr_" + k] = v; if (k === "src") { self.src = v; } };
-    this.getAttribute = function (k) { return self["attr_" + k] === undefined ? null : self["attr_" + k]; };
-    this.removeAttribute = function (k) { delete self["attr_" + k]; };
-    this.play = function () { self._plays++; self.paused = false; return { catch() {} }; };
-    this.pause = function () { self._pauses++; self.paused = true; };
-    this.load = function () {};
-    audios.push(this);
-  }
-  const rafQueue = [];
-  let clock = 1700000000000;
-  const RealDate = Date;
-  function DateShim() { return new RealDate(); }
-  DateShim.now = () => clock; DateShim.parse = RealDate.parse; DateShim.UTC = RealDate.UTC;
-  const store = new Map();
-  const sandbox = {
-    console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
-    URLSearchParams, Promise, JSON, Math, Object, Array, String, Number, Boolean, RegExp, Error,
-    Date: DateShim, Audio: FakeAudio, document,
-    localStorage: {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k),
-    },
-    fetch: () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("{}"), json: () => Promise.resolve({}) }),
-    EventSource: class { constructor() {} addEventListener() {} close() {} },
-    IntersectionObserver: class { constructor() {} observe() {} unobserve() {} },
-    confirm: () => true, alert: () => {}, prompt: () => null,
-    navigator: { userAgent: "node" }, location: { search: "", href: "http://127.0.0.1:8003/" },
-    screen: { width: 360 }, visualViewport: { scale: 1, width: 360 },
-    requestAnimationFrame: (fn) => { rafQueue.push(fn); return rafQueue.length; },
-    cancelAnimationFrame: () => {},
-  };
-  sandbox.window = sandbox;
-  sandbox.globalThis = sandbox;
-  sandbox.self = sandbox;
-  sandbox.window.addEventListener = () => {};
-  sandbox.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-  sandbox.Image = function () { return el("image"); };
-  vm.createContext(sandbox);
-  const html = fs.readFileSync(target, "utf8");
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) { throw new Error("no inline script in " + target); }
-  // expose the module-private bindings to the test only (the page itself is untouched)
-  const probe = "\n;globalThis.__probe={state:()=>state,vid:()=>vid,prev:()=>({url:previewUrl,busy:previewBusy,orig:previewOrigSrc})};";
-  vm.runInContext(m[1] + probe, sandbox, { filename: target });
-  return {
-    sandbox, el, audios,
-    probe: () => sandbox.__probe,
-    step: () => { const q = rafQueue.splice(0); q.forEach((f) => f(0)); return q.length; },
-    advance: (ms) => { clock += ms; },
-    els,
-  };
-}
 (async () => {
 const H = load();
 const $ = H.el;
@@ -260,6 +134,42 @@ await ignored;
 check("preview: the apply button is enabled again after the build", $("previewApplyBtn").disabled === false);
 check("preview: the ignored second tap did not load another url",
       String(vid.src).indexOf("/api/preview/media/eeee.mp4") >= 0, vid.src);
+
+// --- G. opening another video clears the audio timing -------------------------------
+S.fetch = async () => ok({ ok: true, cached: true, url: "/api/preview/media/ffff.mp4", sourceTimelineOffsetUs: 0, outputStartOffsetUs: 0 });
+await S.applyPreview();
+check("reset: a preview is applied before the switch", $("previewRevertBtn").hidden === false);
+S.setAudioShift('orig', 500);
+$("addedShiftInp").value = "80"; $("addedShiftInp").dispatch("input");
+$("addedStartInp").value = "120"; $("addedStartInp").dispatch("input");
+$("addedReencodeChk").checked = true; $("addedReencodeChk").dispatch("change");
+const tracks = $("radio:bothTracks"); tracks.checked = true; tracks.dispatch("change");
+P.state().addedSource = { id: "a1", name: "x", durationUs: 1000000 };
+S.resetAudioTiming();
+check("reset: the original shift goes back to 0", String($("origShiftInp").value) === "0", $("origShiftInp").value);
+check("reset: the added shift goes back to 0", String($("addedShiftInp").value) === "0", $("addedShiftInp").value);
+check("reset: the added start goes back to 0", String($("addedStartInp").value) === "0", $("addedStartInp").value);
+check("reset: the audio mode goes back to original",
+      P.state().audioMode === "original" && $("radio:original").checked === true, P.state().audioMode);
+check("reset: the extra track is forgotten", P.state().addedSource === null);
+check("reset: the re-encode flag is cleared", $("addedReencodeChk").checked === false);
+check("reset: the preview is marked unapplied",
+      String($("previewState").textContent).indexOf("未反映") >= 0, $("previewState").textContent);
+check("reset: the applied preview is reverted on the old element",
+      $("previewRevertBtn").hidden === true && String(vid.src).indexOf("/api/preview/media/") < 0, vid.src);
+
+// --- H. a preview build that finishes after the material changed is discarded ------
+S.revertPreview();
+let releasePreview;
+const previewGate = new Promise((r) => { releasePreview = r; });
+S.fetch = () => previewGate.then(() => ok({ ok: true, cached: true, url: "/api/preview/media/hhhh.mp4", sourceTimelineOffsetUs: 0, outputStartOffsetUs: 0 }));
+const pendingPreview = S.applyPreview();
+S.resetAudioTiming();
+releasePreview();
+await pendingPreview;
+check("reset: a preview build that finishes after the switch is discarded",
+      String(vid.src).indexOf("/api/preview/media/hhhh.mp4") < 0
+      && $("previewRevertBtn").hidden === true, vid.src);
 
 console.log(fails ? "RESULT: FAIL(" + fails + ")" : "RESULT: OK");
 process.exit(fails ? 1 : 0);

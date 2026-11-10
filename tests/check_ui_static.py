@@ -12,8 +12,11 @@ MAIN_PY = ROOT + r"\app\main.py"
 
 fails = 0
 
+total_checks = 0
+
 def check(label, cond, detail=""):
-    global fails
+    global fails, total_checks
+    total_checks += 1
     print(("OK  " if cond else "FAIL") + " " + label + ("" if cond else "  " + detail))
     if not cond:
         fails += 1
@@ -21,14 +24,25 @@ def check(label, cond, detail=""):
 def read(path):
     return io.open(path, encoding="utf-8").read()
 
+def slice_between(src, start, end):
+    """Slice src[start:end], or None when a marker is missing.
+
+    A guard that scans a section must fail when the section cannot be found: an empty
+    slice would let the guard pass without checking anything."""
+    a = src.find(start)
+    b = src.find(end, a + 1) if a >= 0 else -1
+    if a < 0 or b < 0:
+        return None
+    return src[a:b]
+
 web_css = read(WEB_CSS)
 web_html = read(WEB_HTML)
 web_js = read(WEB_JS)
 qwen = read(QWEN)
-exp = read(ROOT + r"\app\exports.py")
 main_py = read(ROOT + r"\app\main.py")
 ffmpeg_py = read(ROOT + r"\app\ffmpeg_tools.py")
-exports_py = read(ROOT + r"\app\exports.py")
+exp = read(ROOT + r"\app\exports.py")
+exports_py = exp
 config_py = read(ROOT + r"\app\config.py")
 security_py = read(ROOT + r"\app\security.py")
 unit_py = read(ROOT + r"\tests\test_unit.py")
@@ -97,9 +111,39 @@ check("qwen: the action bar is visible before anything is selected",
       '<div class="selbar" id="selBar">' in qwen and "bar.hidden=false;" in qwen
       and "b.disabled=n===0" in qwen)
 check("qwen: bulk download zips several files", "/api/fs/zip?" in qwen and 'paths:list' in qwen)
+_hdr = slice_between(qwen, "<header", "</header>")
+check("qwen: display zoom lives in the header",
+      _hdr is not None and 'id="zoomSel"' in _hdr and '<option value="75" selected>' in _hdr)
 check("qwen: display zoom defaults to 75% and is remembered",
-      'id="zoomSel"' in qwen and '<option value="75" selected>' in qwen
-      and "applyUiZoom" in qwen and "zoom:currentUiZoom()" in qwen)
+      _hdr is not None and '<option value="75" selected>' in _hdr and "applyUiZoom" in qwen
+      and "zoom:currentUiZoom()" in qwen and "function defaultUiZoom()" in qwen)
+_export_area = slice_between(qwen, "<!-- EXPORT -->", "</main>")
+check("qwen: display zoom left the export card",
+      _export_area is not None and 'id="zoomSel"' not in _export_area)
+check("qwen: settings saves wait until the stored values are restored",
+      "let settingsReady=false;" in qwen and "if(!settingsReady)return;" in qwen
+      and "finally{settingsReady=true;}" in qwen and "loadSettings();" in qwen)
+_save_area = slice_between(qwen, "function saveSettings()", "function loadSettings()")
+check("qwen: material-specific values are not stored as preferences",
+      _save_area is not None and "audioShiftMs:" not in _save_area and "addedShiftMs:" not in _save_area
+      and "audioMode:" not in _save_area and "addedStartMs:" not in _save_area)
+_src_area = slice_between(qwen, "async function selectSource", "function renderSource()")
+check("qwen: opening a video clears the audio timing", _src_area is not None and "resetAudioTiming();" in _src_area)
+check("qwen: the remembered crop is restored once the video has loaded",
+      "function applyPendingCrop()" in qwen and "if(applyPendingCrop())saveSettings();" in qwen
+      and "pendingCrop=null;" in qwen)
+check("qwen: the settings functions are defined once",
+      qwen.count("function saveSettings(") == 1 and qwen.count("function loadSettings(") == 1
+      and qwen.count("function bindSettings(") == 1)
+check("qwen: stored select values are validated against the options",
+      "function setSelectValue(" in qwen and 'setSelectValue("contSel"' in qwen
+      and 'setSelectValue("encSel"' in qwen and 'setSelectValue("inSnapSel"' in qwen
+      and 'setSelectValue("outModeSel"' in qwen)
+check("qwen: choosing a zoom applies it immediately",
+      'addEventListener("change",()=>{applyUiZoom(currentUiZoom());saveSettings();})' in qwen)
+check("qwen: crop drags save once on release, not on every move",
+      "setCropRect({x,y,w,h},false)" in qwen and "if(persist!==false)saveSettings();" in qwen
+      and "saveSettings();};" in qwen)
 check("qwen: middle ellipsis helper", "function midEllipsis(" in qwen)
 check("qwen: entry name uses middle ellipsis", "midEllipsis(en.name,44)" in qwen)
 check("qwen: chip name uses middle ellipsis", "midEllipsis(s.name,26)" in qwen)
@@ -169,12 +213,9 @@ check("web: frame image is a download", "id=\"frame-dl\"" in web_html and "funct
 check("qwen: metadata uses the deepseek layout", ".src-sub{display:grid" in qwen and ".stream-box{" in qwen)
 
 # 18) the inline script must be real JS (a misplaced block in <style> broke the app once)
-def _between(text, start, end):
-    i = text.index(start); j = text.index(end, i)
-    return text[i + len(start):j]
-
-qwen_css = _between(qwen, "<style>", "</style>")
-qwen_js = _between(qwen, "<script>", "</script>")
+qwen_css = slice_between(qwen, "<style>", "</style>")
+qwen_js = slice_between(qwen, "<script>", "</script>")
+check("qwen: the inline script and style were found", qwen_css is not None and qwen_js is not None)
 check("qwen: no JavaScript left inside <style>", "function " not in qwen_css and "SETTINGS_KEY" not in qwen_css and "const state=" not in qwen_css)
 for _fn in ("function saveSettings(", "function loadSettings(", "function bindSettings(", "function downloadFrame(", "function layoutReport(", "function refreshJobs(", "function renderSource("):
     check("qwen: %s lives in <script>" % _fn, _fn in qwen_js)
@@ -233,7 +274,9 @@ check("timeline: playhead knob is a round marker with a glyph", ".playhead .dia{
 check("timeline: IN/OUT knobs are labelled", ".handle.in .dia::after{content:'IN'}" in qwen and ".handle.out .dia::after{content:'OUT'" in qwen)
 check("timeline: selected and grab feedback", ".selected" in qwen and ".grab" in qwen and "scale(1.12)" in qwen)
 check("timeline: zone split by height", "const sep=(band!=null&&band>0)?band:Math.round(tlH*0.46);" in qwen and "if(py<sep)return tlHorizontalHit(px,playX,tlW)?'play':null;" in qwen)
-check("timeline: empty areas return null", "return null;" in qwen and "empty areas return null" in qwen.lower() + qwen)
+_picker = slice_between(qwen, "function pickTimelineTarget(", "function snap(")
+check("timeline: empty areas return null",
+      _picker is not None and "return null;" in _picker and "empty areas return null" in _picker.lower())
 check("timeline: edge-pinned knobs stay reachable", "TL_HIT_R" in qwen and "right=Math.min(w,Math.max(right,2*TL_HIT_R));" in qwen)
 check("timeline: keeps the required ids", "id=\"timeline\"" in qwen and "id=\"region\"" in qwen and "id=\"hIn\"" in qwen and "id=\"hOut\"" in qwen and "id=\"playhead\"" in qwen)
 check("timeline: keeps the public functions", "function pickTimelineTarget(px,py,playX,inX,outX,last,band)" in qwen and "function updateTimeline()" in qwen and "function tlDown(" in qwen and "function tlMoveEv(" in qwen and "function tlUp(" in qwen and "function tlCancel(" in qwen)
@@ -263,7 +306,9 @@ check("audio: a changed value marks the preview stale",
       "function markPreviewStale(" in qwen and "markPreviewStale();}" in qwen)
 check("audio: the preview state is reported",
       "id='previewDiag'" in qwen and "音声タイミング反映済み" in qwen)
-check("audio: settings persistence", "audioMode:modeRadio?modeRadio.value" in qwen and "addedShiftMs" in qwen and "addedReencode" in qwen)
+check("audio: the timing panel is material state, not a stored preference",
+      "audioMode:modeRadio?modeRadio.value" not in qwen and "function resetAudioTiming()" in qwen
+      and "state.addedSource=null" in qwen and "audioShiftMs" in qwen)
 check("audio: export payload", "o.audioMode=am" in qwen and "o.addedSourceId=" in qwen and "o.addedShiftMs=" in qwen and "o.addedStartMs=" in qwen and "o.addedReencode=" in qwen)
 check("audio: the preview UI removals", "auditionBar" not in qwen and "barStopBtn" not in qwen and "data-bar" not in qwen and "abHoldBtn" not in qwen and "testToneBtn" not in qwen and "playTestTone" not in qwen and "auditionBtn" not in qwen)
 
@@ -272,11 +317,11 @@ check("audio: the preview UI removals", "auditionBar" not in qwen and "barStopBt
 check("shift: no ui clamp", "Math.max(-1000,Math.min(1000" not in qwen and "function clampMs(v){v=parseInt(v,10);if(!isFinite(v))v=0;return v;}" in qwen)
 check("shift: number inputs unbounded", "id='origShiftInp' type='number' step='1'" in qwen and "id='addedShiftInp' type='number' step='1'" in qwen and "id='origShiftInp' type='number' min=" not in qwen and "id='addedShiftInp' type='number' min=" not in qwen)
 check("shift: sliders are relative jog controls", "el.value=0;base=cur();" in qwen and "setAudioShift(target,base+(parseInt(el.value,10)||0),true);" in qwen)
-check("shift: every jog starts at the centre", "[\"origShiftRange\",\"origShiftFine\"].forEach" in qwen and "[\"addedShiftRange\",\"addedShiftFine\"].forEach" in qwen)
+check("shift: every jog starts at the centre", "[\"origShiftRange\",\"origShiftFine\",\"addedShiftRange\",\"addedShiftFine\"].forEach" in qwen)
 check("shift: nothing assigns an absolute position to a jog", "rng.value=c" not in qwen and "if(rng)rng.value=v;" not in qwen and "fine.value=Math.max(-100" not in qwen)
 check("shift: the number input updates only the readout", "const live=$(target==='orig'?'origShiftVal':'addedShiftVal');if(live)live.textContent=msLabel(c);" in qwen)
 check("shift: both jog sizes follow the enable rules", "$(\"origShiftFine\").disabled=origOff" in qwen and "$(\"addedShiftFine\").disabled=addedOff" in qwen)
-check("shift: the stale clamp helper is gone", "setClampMs" not in qwen and "const setShiftInp=" in qwen)
+check("shift: the stale clamp helper is gone", "setClampMs" not in qwen and "function setAudioShift(" in qwen)
 check("shift: hints explain the centre", qwen.count("中央＝現在の値") >= 4)
 
 check("jog: pointercancel resets", "el.addEventListener('pointercancel',end);" in qwen and "touchstart" not in qwen)
@@ -301,5 +346,6 @@ check("e2e: every skip goes through the strict helper",
       and e2e_preview.count("return 0") == 1
       and "RESULT: FAIL (strict mode:" in e2e_preview)
 
+print("checks:", total_checks, "fail:", fails)
 print("RESULT:", "OK" if fails == 0 else "FAIL(%d)" % fails)
 sys.exit(0 if fails == 0 else 1)

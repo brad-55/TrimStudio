@@ -37,6 +37,9 @@ header{
 .spacer{flex:1}
 .badge{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;min-width:0}
 .badge.on{color:var(--ok);border-color:rgba(61,220,151,.4)}
+.hdr-zoom{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);white-space:nowrap;flex:0 0 auto}
+.hdr-zoom select{width:auto;padding:4px 8px;border-radius:999px;font-size:12px;background:#0e121a;border:1px solid var(--line);color:var(--ink)}
+@media(max-width:480px){.hdr-zoom span{display:none}header{gap:8px;padding:8px 10px;flex-wrap:wrap;row-gap:6px}}
 
 /* ---------- layout ---------- */
 main{display:grid;gap:14px;padding:14px;max-width:1320px;margin:0 auto}
@@ -272,6 +275,10 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
   </div>
   <div class="spacer"></div>
   <span class="badge" id="modeBadge">preview: auto</span>
+  <label class="hdr-zoom"><span>表示</span><select id="zoomSel" aria-label="表示倍率" title="表示倍率（既定 75%・この端末に記憶されます）">
+    <option value="60">60%</option><option value="67">67%</option>
+    <option value="75" selected>75%</option><option value="80">80%</option>
+    <option value="90">90%</option><option value="100">100%</option></select></label>
   <button class="btn sm ghost" id="reloadBtn">更新</button>
 </header>
 
@@ -505,10 +512,6 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         </div>
 
         <div class="opt-grid" style="margin-top:10px">
-          <div class="field"><label>表示倍率</label><select class="inp" id="zoomSel">
-            <option value="60">60%</option><option value="67">67%</option>
-            <option value="75" selected>75%（既定）</option><option value="80">80%</option>
-            <option value="90">90%</option><option value="100">100%</option></select></div>
           <div class="field"><label>IN スナップ</label><select class="inp" id="inSnapSel">
             <option value="prev">前のキーフレーム</option><option value="next">次のキーフレーム</option></select></div>
           <div class="field"><label>OUT モード</label><select class="inp" id="outModeSel">
@@ -686,6 +689,7 @@ function renderLutOptions(d){
   const s=$("lutSel"),keep=s.value;
   s.innerHTML='<option value="">なし</option>';
   state.luts.forEach(x=>{const o=document.createElement("option");o.value=x.path;o.textContent=x.name;s.appendChild(o);});
+  lutListLoaded=true;
   if(pendingLut&&state.luts.some(x=>x.path===pendingLut)){s.value=pendingLut;pendingLut="";}
   else if(keep&&state.luts.some(x=>x.path===keep))s.value=keep;
   const lbl=$("lutDirLabel");if(lbl)lbl.textContent="LUT フォルダ: "+(state.lutDir||"-");
@@ -742,20 +746,36 @@ function saveFrameFile(){
 }
 /* ---------- settings persistence ---------- */
 const SETTINGS_KEY="trim.settings.v1";
+/* The page builds its controls with default values first and restores the stored ones in
+   the synchronous init phase.  Any save before that point would overwrite the stored
+   snapshot with the defaults, so saves stay disabled until loadSettings() has run. */
+let settingsReady=false;
 let pendingLut="";
+let lutListLoaded=false;
+let pendingCrop=null;
+
+/* A stored value can belong to an older build whose option list has changed (an encoder
+   that is no longer offered, a container that was removed).  Setting such a value would
+   leave the select empty and the next save would persist the empty value. */
+function setSelectValue(id,value){
+  const el=$(id);if(!el||value===undefined||value===null)return;
+  const options=el.options?Array.prototype.map.call(el.options,function(o){return String(o.value);}):null;
+  if(options&&options.indexOf(String(value))<0)return;
+  el.value=value;
+}
 function saveSettings(){
+  if(!settingsReady)return;
   try{
-    const modeRadio=document.querySelector('input[name="audioModeRadio"]:checked');
+    /* Global preferences only.  The audio timing panel belongs to the material being
+       edited (it is reset when another video is opened), so it is deliberately not
+       stored here; storing it would reintroduce a shift meant for a different clip. */
     const s={mode:state.mode,container:$("contSel").value,outPath:$("outPath").value,
-      lut:$("lutSel").value,encoder:$("encSel").value,stabilize:$("stabChk").checked,
+      lut:lutListLoaded?(($("lutSel")&&$("lutSel").value)||""):(pendingLut||""),encoder:$("encSel").value,stabilize:$("stabChk").checked,
       audio:$("audioChk").checked,vbr:$("vbrInp").value,abr:$("abrInp").value,
       inSnap:$("inSnapSel").value,outMode:$("outModeSel").value,outDir:outDir,
       cropW:$("cropW").value,cropH:$("cropH").value,cropX:$("cropX").value,cropY:$("cropY").value,
-      audioMode:modeRadio?modeRadio.value:'original',
-      audioShiftMs:clampMs($("origShiftInp")?$("origShiftInp").value:0),
-      addedShiftMs:clampMs($("addedShiftInp")?$("addedShiftInp").value:0),
-      addedStartMs:startMsVal($("addedStartInp")?$("addedStartInp").value:0),
-      addedReencode:!!$("addedReencodeChk").checked,zoom:currentUiZoom()};
+      cropSourceId:state.source?state.source.id:"",
+      zoom:currentUiZoom()};
     localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
   }catch(_){}
 }
@@ -763,29 +783,29 @@ function loadSettings(){
   let s=null;try{s=JSON.parse(localStorage.getItem(SETTINGS_KEY)||"null");}catch(_){s=null;}
   if(!s)return;
   const set=(id,v)=>{if(v!==undefined&&v!==null&&$(id))$(id).value=v;};
-  set("contSel",s.container);set("outPath",s.outPath);set("vbrInp",s.vbr);set("abrInp",s.abr);
-  if($("zoomSel"))$("zoomSel").value=String(s.zoom||defaultUiZoom());
-  applyUiZoom(s.zoom||defaultUiZoom());
-  set("inSnapSel",s.inSnap);set("outModeSel",s.outMode);
+  setSelectValue("contSel",s.container);set("outPath",s.outPath);set("vbrInp",s.vbr);set("abrInp",s.abr);
+  const zoomChoices=[60,67,75,80,90,100];
+  let zoom=parseInt(s.zoom,10);
+  if(zoomChoices.indexOf(zoom)<0)zoom=defaultUiZoom();
+  if($("zoomSel"))$("zoomSel").value=String(zoom);
+  setSelectValue("inSnapSel",s.inSnap);setSelectValue("outModeSel",s.outMode);
   if(s.outDir)outDir=s.outDir;
-  if(s.encoder)$("encSel").value=s.encoder;
-  $("stabChk").checked=!!s.stabilize;$("audioChk").checked=!!s.audio;
-  set("cropW",s.cropW);set("cropH",s.cropH);set("cropX",s.cropX);set("cropY",s.cropY);
-  if(s.mode){state.mode=s.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===s.mode));
+  if(s.encoder)setSelectValue("encSel",s.encoder);
+  if(typeof s.stabilize==="boolean")$("stabChk").checked=s.stabilize;
+  if(typeof s.audio==="boolean")$("audioChk").checked=s.audio;
+  if(s.mode&&(s.mode==="lossless"||s.mode==="reencode")){state.mode=s.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===s.mode));
     $("reOpts").style.display=s.mode==="reencode"?"block":"none";}
   pendingLut=s.lut||"";
-  if(s.audioMode){const r=document.querySelector('input[name="audioModeRadio"][value="'+String(s.audioMode)+'"]');if(r)r.checked=true;}
-  const setShiftInp=(id,v)=>{let x=parseInt(v,10);if(!isFinite(x))x=0;if($(id))$(id).value=x;return x;};
-  setShiftInp("origShiftInp",s.audioShiftMs);["origShiftRange","origShiftFine"].forEach(function(id){if($(id))$(id).value=0;});
-  setShiftInp("addedShiftInp",s.addedShiftMs);["addedShiftRange","addedShiftFine"].forEach(function(id){if($(id))$(id).value=0;});
-  setNum("addedStartInp",s.addedStartMs);
-  if($("addedReencodeChk"))$("addedReencodeChk").checked=!!s.addedReencode;
-  if(typeof updateAudioUI==='function')setTimeout(updateAudioUI,0);
+  /* The crop rect depends on the video size, so it is kept out of the inputs (no
+     out-of-range numbers flash on screen) and restored once a source is open; that path
+     clamps it to the source dimensions. */
+  const _cw=parseInt(s.cropW,10),_ch=parseInt(s.cropH,10),_cx=parseInt(s.cropX,10),_cy=parseInt(s.cropY,10);
+  pendingCrop=(isFinite(_cw)&&isFinite(_ch)&&_cw>0&&_ch>0)?{x:isFinite(_cx)?_cx:0,y:isFinite(_cy)?_cy:0,w:_cw,h:_ch,sourceId:String(s.cropSourceId||"")}:null;
 }
 function bindSettings(){
   ["contSel","outPath","lutSel","encSel","stabChk","audioChk","vbrInp","abrInp","inSnapSel","outModeSel",
-   "cropW","cropH","cropX","cropY","zoomSel"].forEach(id=>{const el=$(id);if(!el)return;
-    el.addEventListener("change",saveSettings);el.addEventListener("input",saveSettings);});
+   "cropW","cropH","cropX","cropY"].forEach(id=>{const el=$(id);if(!el)return;
+    el.addEventListener("change",saveSettings);});
 }
 async function boot(){
   try{const t=await api("/api/token");state.token=t.token;}catch(e){
@@ -799,7 +819,6 @@ async function boot(){
     }
   }
   try{const c=await api("/api/config");state.config=c;$("modeBadge").textContent="preview: "+(c.previewMode||"auto");}catch(e){}
-  loadSettings();
   await loadLuts();
   try{const l=null;
     }catch(e){}
@@ -844,7 +863,10 @@ async function selectSource(id){
     state.source=d.source;state.kind=d.source.kind||"video";state.directPlayable=d.directPlayable;state.variant="original";state.proxyReady=!!d.proxyReady;
     state.durationUs=d.source.durationUs||0;state.fps=d.source.fps||30;
     state.inUs=0;state.outUs=state.durationUs;
-    crop=null;if(tlDrag)tlCancel();lastHandle=null;syncCropInputs();renderSource();loadKeyframes(id);setVariant("original");refreshFrames();ensureCrop();drawCrop();updatePlayNotice();
+    /* Revert a preview of the PREVIOUS clip before the element is pointed at the new one:
+   revertPreview() restores the old source URL, so it must run while that URL still
+   belongs to the previous video.  The audio panel belongs to one material too. */
+resetAudioTiming();crop=null;if(tlDrag)tlCancel();lastHandle=null;syncCropInputs();renderSource();loadKeyframes(id);setVariant("original");refreshFrames();ensureCrop();drawCrop();updatePlayNotice();
   }catch(e){showErr("ソース読み込み失敗: "+e.message);}
 }
 function renderSource(){
@@ -1068,12 +1090,30 @@ function syncCropInputs(){
   $("cropW").value=Math.round(crop.w);$("cropH").value=Math.round(crop.h);
   $("cropX").value=Math.round(crop.x);$("cropY").value=Math.round(crop.y);
 }
-function setCropRect(r){
+function setCropRect(r,persist){
   const {w:sw,h:sh}=srcWH();if(!sw||!sh)return;
   let w=Math.max(16,Math.min(Math.round(r.w),sw)),h=Math.max(16,Math.min(Math.round(r.h),sh));
   w-=w%2;h-=h%2;
   const x=Math.max(0,Math.min(Math.round(r.x),sw-w)),y=Math.max(0,Math.min(Math.round(r.y),sh-h));
   crop={x,y,w,h};syncCropInputs();drawCrop();
+  if(persist!==false)saveSettings();
+}
+
+/* Restore a remembered crop against the newly opened source.  setCropRect clamps the
+   rect to the video and snaps it to even numbers, so a saved rect from a larger clip
+   can never draw the box outside the picture. */
+function applyPendingCrop(){
+  if(!pendingCrop)return false;
+  /* A remembered rect belongs to ONE material: opening a different video must not
+     inherit it (no sourceId = data from an older build, applied once). */
+  if(pendingCrop.sourceId&&(!state.source||state.source.id!==pendingCrop.sourceId)){pendingCrop=null;return false;}
+  /* Keep the pending rect while the dimensions are unknown: the video element still
+     reports the PREVIOUS clip until the new one has loaded, and clamping against that
+     would shrink the box to the wrong frame.  loadedmetadata retries. */
+  if(!srcWH().w||!srcWH().h)return false;
+  const rect=pendingCrop;pendingCrop=null;   /* one-shot: a later video gets a full frame */
+  setCropRect(rect,false);
+  return true;
 }
 function fullRect(){const {w,h}=srcWH();return {x:0,y:0,w,h};}
 function isFullCrop(){
@@ -1099,7 +1139,7 @@ function drawCrop(){
 }
 function cropPreset(kind){
   const {w:sw,h:sh}=srcWH();if(!sw||!sh)return;
-  if(kind==="full"){crop=null;syncCropInputs();drawCrop();return;}
+  if(kind==="full"){crop=null;syncCropInputs();drawCrop();saveSettings();return;}
   const parts=kind.split(":"),aw=+parts[0],ah=+parts[1];
   if(!aw||!ah)return;
   let w=sw,h=Math.round(sw*ah/aw);
@@ -1129,10 +1169,10 @@ function cropPreset(kind){
       if(H.indexOf("n")>=0){const ny=R.y+dy,nh=R.h-(ny-R.y);if(nh>=16){y=ny;h=nh;}}
       if(H.indexOf("s")>=0){h=R.h+dy;}
     }
-    setCropRect({x,y,w,h});
+    setCropRect({x,y,w,h},false);
     e.preventDefault();
   });
-  const stop=e=>{if(drag){drag=null;try{box.releasePointerCapture(e.pointerId);}catch(_){}}};
+  const stop=e=>{if(drag){drag=null;try{box.releasePointerCapture(e.pointerId);}catch(_){}}saveSettings();};
   box.addEventListener("pointerup",stop);
   box.addEventListener("pointercancel",stop);
   ["cropW","cropH","cropX","cropY"].forEach(id=>{
@@ -1140,7 +1180,7 @@ function cropPreset(kind){
     el.addEventListener("change",()=>{
       const w=+$("cropW").value,h=+$("cropH").value;
       if(w>0&&h>0)setCropRect({x:+$("cropX").value||0,y:+$("cropY").value||0,w,h});
-      else{crop=null;syncCropInputs();drawCrop();}
+      else{crop=null;syncCropInputs();drawCrop();saveSettings();}
     });
   });
   document.querySelectorAll("[data-crop]").forEach(b=>b.addEventListener("click",()=>cropPreset(b.dataset.crop)));
@@ -1425,7 +1465,7 @@ vid.addEventListener("loadedmetadata",()=>{
     if($("variantBadge"))$("variantBadge").textContent="variant: original";
     updatePlayNotice();
   }
-  if(!state.durationUs&&vid.duration)state.durationUs=Math.round(vid.duration*1e6);refreshFrames();ensureCrop();drawCrop();});
+  if(!state.durationUs&&vid.duration)state.durationUs=Math.round(vid.duration*1e6);refreshFrames();ensureCrop();drawCrop();if(applyPendingCrop())saveSettings();});
 vid.addEventListener("play",()=>{$("playBtn").querySelector(".g").textContent="⏸";$("playBtn").lastElementChild.textContent="一時停止";});
 vid.addEventListener("error",()=>{
   if(!state.source||state.kind==="audio")return;
@@ -1693,12 +1733,35 @@ function applyUiZoom(pct){
   return v;
 }
 function currentUiZoom(){const v=parseInt($("zoomSel")?$("zoomSel").value:defaultUiZoom(),10);return isFinite(v)?v:defaultUiZoom();}
-function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;/* the jog sliders are relative: their centre already means "the value in use", so they are never moved to an absolute position. Only a stray off-centre handle (missed pointerup) is nudged back. */if(!fromJog&&((rng&&Number(rng.value)!==0)||(fine&&Number(fine.value)!==0))){if(rng)rng.value=0;if(fine)fine.value=0;}if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;saveSettings();updateAudioUI();
+function setAudioShift(target,v,fromJog){v=clampMs(v);const pre=target==='orig'?'orig':'added';const inp=$(pre+'ShiftInp'),rng=$(pre+'ShiftRange'),fine=$(pre+'ShiftFine'),val=$(pre+'ShiftVal');if(inp)inp.value=v;/* the jog sliders are relative: their centre already means "the value in use", so they are never moved to an absolute position. Only a stray off-centre handle (missed pointerup) is nudged back. */if(!fromJog&&((rng&&Number(rng.value)!==0)||(fine&&Number(fine.value)!==0))){if(rng)rng.value=0;if(fine)fine.value=0;}if(val)val.textContent=msLabel(v);if(target==='orig')state.audioShiftMs=v;else state.addedShiftMs=v;updateAudioUI();
   markPreviewStale();}
 function addedModeActive(m){m=m||audioModeValue();return m==='added'||m==='bothTracks'||m==='bothMix';}
 function origModeActive(m){m=m||audioModeValue();return m==='original'||m==='bothTracks'||m==='bothMix';}
+
+/* The audio timing panel describes ONE material, so it must not leak into the next
+   video (a shift that fitted clip A would silently mistime clip B). */
+let audioGen=0;
+function resetAudioTiming(){
+  audioGen++;previewToken++;   /* in-flight preview builds are now stale too */
+  const radio=document.querySelector('input[name="audioModeRadio"][value="original"]');
+  if(radio)radio.checked=true;
+  state.audioMode='original';state.audioShiftMs=0;state.addedShiftMs=0;state.addedStartMs=0;
+  state.addedSource=null;lastSyncShift=null;
+  ["origShiftInp","addedShiftInp"].forEach(function(id){if($(id))$(id).value=0;});
+  if($("addedStartInp"))$("addedStartInp").value=0;
+  ["origShiftRange","origShiftFine","addedShiftRange","addedShiftFine"].forEach(function(id){if($(id))$(id).value=0;});
+  if($("origShiftVal"))$("origShiftVal").textContent=msLabel(0);
+  if($("addedShiftVal"))$("addedShiftVal").textContent=msLabel(0);
+  if($("addedReencodeChk"))$("addedReencodeChk").checked=false;
+  if($("syncResult"))$("syncResult").hidden=true;
+  if($("addedFileInput"))$("addedFileInput").value="";
+  renderAddedInfo();
+  if($("previewRevertBtn")&&!$("previewRevertBtn").hidden){try{revertPreview();}catch(_){}}
+  setPreviewState('未反映');
+  updateAudioUI();
+}
 function renderAddedInfo(){const el=$("addedInfo");if(!el)return;if(state.addedSource){const d=state.addedSource.durationUs;el.textContent=(state.addedSource.name||'追加音声')+(d!=null?' / '+fmt(d):'');}else{el.textContent='未選択';}}
-function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("previewApplyBtn"))$("previewApplyBtn").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();/* Keep the state of the timing switch in plain sight: a value typed while the *//* switch is off is silently ignored by both the preview and the export. */const st=$("audioTimingState");if(st){st.textContent="この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。";}}
+function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("audioTimingState"))$("audioTimingState").textContent=(mode==='mute')?"消音が選ばれています。書き出しでは音声トラックを持ちません（タイミング設定は使いません）。":"この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。";if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("previewApplyBtn"))$("previewApplyBtn").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();}
 /* ---------- preview proxy: bake the timing, then play ONE file ---------- */
 function setPreviewState(text,color){const el=$("previewState");if(!el)return;el.textContent=text;el.style.color=color||"";}
 function markPreviewStale(){if(!previewUrl)return;setPreviewState("未反映（設定が変更されました）","#e0a030");}
@@ -1759,13 +1822,13 @@ function revertPreview(){
 function setSyncStatus(t){if($("syncStatus"))$("syncStatus").textContent=t||'';}
 function firstNumber(){for(let i=0;i<arguments.length;i++){const n=parseFloat(arguments[i]);if(isFinite(n))return n;}return null;}
 function handleSyncResult(r){r=r||{};const ok=r.ok===undefined?true:!!r.ok;const ms=firstNumber(r.shiftMs,r.offsetMs,r.deltaMs,r.estimateMs,r.ms,r.value);const conf=firstNumber(r.confidence,r.score,r.certainty,r.reliability,null);if(!ok||ms==null){$("syncResult").hidden=true;setSyncStatus('');$("syncManualErr").hidden=false;$("audioSyncBtn").disabled=false;return;}lastSyncShift=Math.round(ms);$("syncResultText").textContent='推定 '+lastSyncShift+'ms（信頼度 '+(conf==null?'—':conf)+'）';$("syncResult").hidden=false;$("syncManualErr").hidden=true;setSyncStatus('');$("audioSyncBtn").disabled=false;}
-function pollSyncJob(id){if(syncTimer){clearInterval(syncTimer);syncTimer=null;}let n=0;syncTimer=setInterval(async()=>{n++;if(n>120){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('タイムアウト');return;}try{const d=await api('/api/jobs/'+id,{silent:true});const j=d.job||{};if(j.status==='done'){clearInterval(syncTimer);syncTimer=null;handleSyncResult(j.result||{});}else if(j.status==='error'||j.status==='cancelled'){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus(j.error||'失敗');}}catch(_){}},1000);}
-async function autoSync(){if(!state.source||!state.addedSource){toast('追加音声を選択してください',true);return;}if(!addedModeActive()){toast('追加音声を使うモードを選択してください',true);return;}const btn=$("audioSyncBtn");if(btn)btn.disabled=true;$("syncResult").hidden=true;$("syncManualErr").hidden=true;setSyncStatus('同期中…');try{const d=await api('/api/audio/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceId:state.source.id,addedSourceId:state.addedSource.id,startUs:Math.round(state.inUs),windowMs:20000,rangeMs:3000,windows:3})});pollSyncJob(d.jobId);}catch(e){$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('同期要求失敗');}}
+function pollSyncJob(id,gen){if(syncTimer){clearInterval(syncTimer);syncTimer=null;}let n=0;syncTimer=setInterval(async()=>{if(gen!==undefined&&gen!==audioGen){clearInterval(syncTimer);syncTimer=null;return;}n++;if(n>120){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('タイムアウト');return;}try{const d=await api('/api/jobs/'+id,{silent:true});const j=d.job||{};if(j.status==='done'){clearInterval(syncTimer);syncTimer=null;handleSyncResult(j.result||{});}else if(j.status==='error'||j.status==='cancelled'){clearInterval(syncTimer);syncTimer=null;$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus(j.error||'失敗');}}catch(_){}},1000);}
+async function autoSync(){if(!state.source||!state.addedSource){toast('追加音声を選択してください',true);return;}if(!addedModeActive()){toast('追加音声を使うモードを選択してください',true);return;}const btn=$("audioSyncBtn");if(btn)btn.disabled=true;$("syncResult").hidden=true;$("syncManualErr").hidden=true;setSyncStatus('同期中…');try{const gen=audioGen;const d=await api('/api/audio/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceId:state.source.id,addedSourceId:state.addedSource.id,startUs:Math.round(state.inUs),windowMs:20000,rangeMs:3000,windows:3})});pollSyncJob(d.jobId,gen);}catch(e){$("audioSyncBtn").disabled=false;$("syncManualErr").hidden=false;setSyncStatus('同期要求失敗');}}
 const _selectSource=selectSource;selectSource=async function(id){await _selectSource(id);updateAudioUI();};
 const _openLocal=openLocal;openLocal=async function(path){if(pendingAddedOpen){pendingAddedOpen=false;clearErr();try{const d=await api('/api/sources/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});state.addedSource=d.source;hideBrowse();renderAddedInfo();updateAudioUI();toast('追加音声を読み込み: '+(d.source.name||''));}catch(e){showErr('追加音声を開けませんでした: '+e.message);}return;}await _openLocal(path);};
 const _doUpload=doUpload;doUpload=async function(file){if(pendingAddedUpload){pendingAddedUpload=false;clearErr();toast('追加音声をアップロード中…');const fd=new FormData();fd.append('file',file);try{const d=await api('/api/sources/upload',{method:'POST',body:fd,timeoutMs:1800000});state.addedSource=d.source;renderAddedInfo();updateAudioUI();toast('追加音声を追加: '+(d.source.name||''));}catch(e){showErr('追加音声のアップロード失敗: '+e.message);}return;}await _doUpload(file);};
 const _hideBrowse=hideBrowse;hideBrowse=function(){pendingAddedOpen=false;pendingAddedUpload=false;_hideBrowse();};
-document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventListener('change',()=>{saveSettings();updateAudioUI();markPreviewStale();}));
+document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventListener('change',()=>{updateAudioUI();markPreviewStale();}));
 ['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const live=$(target==='orig'?'origShiftVal':'addedShiftVal');if(live)live.textContent=msLabel(c);if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();markPreviewStale();});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
   /* The sliders are relative jog controls: the centre always means the value in
      use, so dragging right/left nudges it instead of jumping to an absolute ms. */
@@ -1785,14 +1848,18 @@ document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventL
   });
 
 document.querySelectorAll('[data-shift]').forEach(b=>b.addEventListener('click',()=>{setAudioShift(b.dataset.shift,audioShiftValue(b.dataset.shift)+(parseInt(b.dataset.delta,10)||0));}));
-if($("addedStartInp"))$("addedStartInp").addEventListener('input',()=>{state.addedStartMs=startMsVal($("addedStartInp").value);saveSettings();markPreviewStale();});
-if($("addedReencodeChk"))$("addedReencodeChk").addEventListener('change',saveSettings);
+if($("addedStartInp"))$("addedStartInp").addEventListener('input',()=>{state.addedStartMs=startMsVal($("addedStartInp").value);markPreviewStale();});
+if($("addedReencodeChk"))$("addedReencodeChk").addEventListener('change',markPreviewStale);
 if($("audioSyncBtn"))$("audioSyncBtn").addEventListener('click',autoSync);
 if($("useSyncBtn"))$("useSyncBtn").addEventListener('click',()=>{setAudioShift('added',lastSyncShift);$("syncResult").hidden=true;toast('追加音声のずらしを設定しました');});
 if($("addedBrowseBtn"))$("addedBrowseBtn").addEventListener('click',()=>{if($("addedBrowseBtn").disabled)return;pendingAddedOpen=true;pickDir=false;pickAction=null;pickSource=null;pickLut=false;$("useDirBtn").textContent='このフォルダを使う';$("useDirBtn").style.display='none';$("browseTitle").textContent='追加する音声を選択';openBrowse();});
 if($("addedFileInput"))$("addedFileInput").addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f){pendingAddedUpload=true;doUpload(f);e.target.value='';}});
 if($("previewApplyBtn"))$("previewApplyBtn").addEventListener('click',applyPreview);
 if($("previewRevertBtn"))$("previewRevertBtn").addEventListener('click',revertPreview);
+/* Restore the saved preferences synchronously, before the network can answer: that
+   both avoids a layout shift and (because saves stay disabled until here) keeps the
+   initial default values from overwriting the stored snapshot. */
+try{loadSettings();}catch(e){console.warn("settings: restore failed",e);}finally{settingsReady=true;}
 applyUiZoom(currentUiZoom());updateAudioUI();setAudioShift('orig',state.audioShiftMs||0);setAudioShift('added',state.addedShiftMs||0);setPreviewState('未反映');if($('previewRevertBtn'))$('previewRevertBtn').hidden=true;
 $("spinEscape").addEventListener("click",releaseSpinner);
 
