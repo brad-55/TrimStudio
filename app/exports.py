@@ -938,16 +938,24 @@ def build_mix_args(cfg, source, added_source, out, container, start_us, length_u
     the caller muxes the copied video with this mixed audio afterwards, so the video
     timestamps stay at zero and chapters survive (plan 0.4).  With final=True the mix
     IS the whole export (audio-only bothMix).
+
+    The inputs are cut with atrim (not -ss): an input-side seek leaves AAC priming
+    timestamps in front of adelay, and this ffmpeg then makes adelay+amix emit a single
+    frame of audio (measured: a 4.4s mix became 0.02s).  The explicit resample and the
+    final apad/atrim also make the mixed length deterministic.
     """
+    rate = 48000
+    tail_o = max(0, -orig_shift_us)
     args = []
     filt = []
     slot = 0
+    fmt = "aresample=%d,aformat=sample_fmts=fltp:sample_rates=%d:channel_layouts=stereo" % (rate, rate)
     if orig_stream is not None:
-        tail = max(0, -orig_shift_us)
-        args += ["-ss", ffmpeg_tools.format_seconds(max(0, start_us)),
-                 "-t", ffmpeg_tools.format_seconds(max(0, length_us + tail)),
-                 "-i", long_path(source["path"])]
-        filt.append("[0:" + str(orig_stream["index"]) + "]" + _mix_filter(orig_shift_us) + "[o]")
+        dur_o = (length_us + tail_o) / 1e6
+        args += ["-i", long_path(source["path"])]
+        filt.append("[0:" + str(orig_stream["index"]) + "]"
+                    + "atrim=start=%.6f:duration=%.6f,asetpts=PTS-STARTPTS," % (max(0, start_us) / 1e6, dur_o)
+                    + _mix_filter(orig_shift_us) + "," + fmt + "[o]")
         slot += 1
     if added_source is not None and added_stream is not None:
         tail = max(0, -added_shift_us)
@@ -955,27 +963,28 @@ def build_mix_args(cfg, source, added_source, out, container, start_us, length_u
         t_add = length_us + tail
         if dur:
             t_add = min(t_add, max(0, dur - max(0, added_start_us)))
-        args += ["-ss", ffmpeg_tools.format_seconds(max(0, added_start_us)),
-                 "-t", ffmpeg_tools.format_seconds(max(0, t_add)),
-                 "-i", long_path(added_source["path"])]
-        filt.append("[" + str(slot) + ":" + str(added_stream["index"]) + "]" + _mix_filter(added_shift_us) + "[a]")
+        args += ["-i", long_path(added_source["path"])]
+        filt.append("[" + str(slot) + ":" + str(added_stream["index"]) + "]"
+                    + "atrim=start=%.6f:duration=%.6f,asetpts=PTS-STARTPTS,"
+                    % (max(0, added_start_us) / 1e6, max(0, t_add) / 1e6)
+                    + _mix_filter(added_shift_us) + "," + fmt + "[a]")
         slot += 1
     if slot == 0:
         raise RuntimeError("no audio to mix")
     if slot == 2:
-        filt.append("[o][a]amix=inputs=2:normalize=0:duration=longest[aout]")
-        label = "[aout]"
+        filt.append("[o][a]amix=inputs=2:normalize=0:duration=longest[am]")
     else:
-        label = "[o]" if orig_stream is not None else "[a]"
-    args += ["-filter_complex", ";".join(filt), "-map", label]
+        filt.append(("[o]" if orig_stream is not None else "[a]") + "anull[am]")
+    # Exact length: a delayed track makes amix run long, and the shift stage keeps the
+    # original head room; pad/trim here so the mux sees exactly the interval.
+    filt.append("[am]apad=whole_dur=%.6f,atrim=end=%.6f,asetpts=PTS-STARTPTS[aout]"
+                % (max(0, length_us) / 1e6, max(0, length_us) / 1e6))
+    args += ["-filter_complex", ";".join(filt), "-map", "[aout]"]
     codec = REENCODE_AUDIO_CODECS.get(container, "aac")
     args += ["-c:a", codec]
     kbps = _audio_bitrate(options, added_stream or orig_stream)
     if codec not in LOSSLESS_AUDIO_CODECS:
         args += ["-b:a", str(int(kbps)) + "k"]
-    # cap the mix here: amix duration=longest runs past the interval when a track is
-    # delayed, and the later mux cannot trim that tail (its -t would race make_zero)
-    args += ["-t", ffmpeg_tools.format_seconds(max(0, length_us))]
     if final and container in ("ipod", "mp4", "mov"):
         args += ["-movflags", "+faststart"]
     args += [long_path(out)]
