@@ -257,7 +257,8 @@ check("audio: never seeks while loading", "el.readyState<1||el.seeking" in qwen)
 check("audio: three-tier sync (do nothing / rate nudge / rare seek)",
       "ad>0.25" in qwen and "ad>0.08" in qwen
       and "Math.max(-0.04,Math.min(0.04,-d*0.15))" in qwen
-      and "now-Number(el.dataset.seekAt)<1000" in qwen)
+      and "now-Number(el.dataset.seekAt)<1000" in qwen
+      and "ad<0.005" in qwen)
 check("audio: rate nudge is bounded and reset once aligned",
       "const want=1+k;" in qwen and "el.playbackRate=1;" in qwen
       and "-d*0.5" not in qwen and "seekFails" not in qwen and "kicked" not in qwen)

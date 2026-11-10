@@ -260,7 +260,7 @@ S.syncAudition(false);
 check("the same target is still throttled", o._writes.length - w5 <= 1, o._writes.length - w5);
 S.stopAudition();
 
-// --- E. small drift is left alone, only a real desync seeks ---------------------
+// --- E. deadband under 80ms, rate convergence under 250ms, seek beyond -----------
 S.stopAudition();
 S.setAudioShift("orig", 0);
 P.state().source = { id: "s1", durationUs: 12e6 };
@@ -279,10 +279,16 @@ check("smooth: in sync means rate 1", oo.playbackRate === 1, oo.playbackRate);
 oo.currentTime = 2.06;         // 60 ms ahead: below the ear's threshold
 const wSmall = oo._writes.length;   // count AFTER positioning the track
 S.syncAudition(false);
-check("stable: a 60ms drift is left alone (no seek, no rate wobble)",
+check("deadband: a 60ms drift is left alone (no seek, no rate nudge)",
       oo._writes.length === wSmall && oo.playbackRate === 1,
       "writes=" + (oo._writes.length - wSmall) + " rate=" + oo.playbackRate);
-check("stable: the rate is never modulated", oo.playbackRate === 1, oo.playbackRate);
+
+oo.currentTime = 2.15;         // 150 ms: audible, but a seek would be louder than the drift
+const wMid = oo._writes.length;
+S.syncAudition(false);
+check("converge: a 150ms drift gets a bounded rate nudge, not a seek",
+      oo._writes.length === wMid && oo.playbackRate < 0.99 && oo.playbackRate > 0.96,
+      "writes=" + (oo._writes.length - wMid) + " rate=" + oo.playbackRate);
 
 H.advance(2000);
 oo.currentTime = 3.5;          // 1.5 s: genuinely out of sync
@@ -290,6 +296,7 @@ const wBig = oo._writes.length;
 S.syncAudition(false);
 check("desync: a 1.5s error seeks once", oo._writes.length === wBig + 1,
       oo._writes.length - wBig);
+check("desync: the seek clears the rate nudge, back to 1", oo.playbackRate === 1, oo.playbackRate);
 
 // a target past the end must never park the track on its last frames
 H.advance(2000);
