@@ -171,6 +171,16 @@ check("reset: a preview build that finishes after the switch is discarded",
       String(vid.src).indexOf("/api/preview/media/hhhh.mp4") < 0
       && $("previewRevertBtn").hidden === true, vid.src);
 
+// --- I. the no-reencode delay option is an export-only flag ------------------------
+S.revertPreview();
+check("delay: the option defaults OFF", $("delayNoReencodeChk").checked === false);
+check("delay: the export payload carries OFF", S.collectOptions().delayNoReencode === false);
+$("delayNoReencodeChk").checked = true;
+check("delay: the export payload carries ON", S.collectOptions().delayNoReencode === true);
+check("delay: the option never enters the preview request",
+      String(S.previewRequestBody().delayNoReencode) === "undefined");
+$("delayNoReencodeChk").checked = false;
+
 console.log(fails ? "RESULT: FAIL(" + fails + ")" : "RESULT: OK");
 process.exit(fails ? 1 : 0);
 })();

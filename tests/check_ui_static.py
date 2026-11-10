@@ -306,6 +306,18 @@ check("audio: a changed value marks the preview stale",
       "function markPreviewStale(" in qwen and "markPreviewStale();}" in qwen)
 check("audio: the preview state is reported",
       "id='previewDiag'" in qwen and "音声タイミング反映済み" in qwen)
+_bind = slice_between(qwen, "function bindSettings()", "function boot()") or ""
+check("audio: the no-reencode delay option exists and defaults OFF",
+      "id='delayNoReencodeChk'" in qwen and "id='delayNoReencodeChk' checked" not in qwen)
+check("audio: the delay option is in the export payload",
+      'o.delayNoReencode=' in qwen and "delayNoReencodeChk" in qwen)
+check("audio: the delay option is a remembered preference",
+      "delayNoReencode:!!" in qwen and "typeof s.delayNoReencode" in qwen
+      and "delayNoReencodeChk" in _bind)
+check("audio: the delay option explains the player caveat",
+      "開始位置を無視する一部の再生アプリ" in qwen and "書き出しのみ" in qwen)
+check("audio: the delay option mentions the chapter limitation",
+      "チャプターは出力されません" in qwen and "チャプターは出力されません" in readme_md)
 check("audio: the timing panel is material state, not a stored preference",
       "audioMode:modeRadio?modeRadio.value" not in qwen and "function resetAudioTiming()" in qwen
       and "state.addedSource=null" in qwen and "audioShiftMs" in qwen)

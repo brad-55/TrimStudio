@@ -413,3 +413,43 @@ Agy:
   6. LUT を「なし」に戻しても保存されない経路（pendingLut フォールバック）を `lutListLoaded` で解消。
 
 - テスト: 全スイート **308 checks OK / FAIL 0**（静的ガード 191 件・設定往復 41 件・音声UI 40 件・E2E 11 件・smoke・unit）。新規 `tests/test_settings_persist.js` は同一 localStorage で2回ロードし、実 `selectSource` / `loadedmetadata` を駆動して復元・リセット・LUT 解除・sourceId 一致を検証する。
+
+
+## 音声を無変換で遅らせるオプション（`delayNoReencode`）（2026-11-10）
+
+ユーザー要望: 「音声エンコードについて、2を無変換オプションとして実装。まだ、デフォルトでなくてよい。」
+（事前検討の結論: 無音を先頭に付ける既定方式は AAC の 21.33ms フレーム量子化と +42.7ms のエンコーダ・プリミングで数10ms ずれる。音声を再エンコードせず、コンテナ開始位置（mp4/mov の edit list、Matroska の block timestamp）で遅らせる方式を任意オプションとして実装）
+
+### 計画レビュー
+
+| 回 | GLM 5.3 Flash | Agy gemini-3.8-flash-high |
+|---|---|---|
+| 1 | **完全Go** | **完全Go** |
+
+- 設計: `delayNoReencode`（既定 OFF）。ON + 正のずらし + 区間先頭に遡る余裕なし + コンテナが edit list / block timestamp 対応のとき、音声パケットを無変換のままコンテナ timestamp で遅延（`audio.delayMode="timestamp"`）。非対応コンテナ（`NO_ELST_CONTAINERS`）は理由警告付きで従来の adelay 再エンコードへフォールバック。既定は完全に不変。
+
+### 成果物レビュー
+
+| 回 | GLM 5.3 Flash | Agy gemini-3.8-flash-high |
+|---|---|---|
+| 1 | 条件付きGo（Minor 1〜3: bool 解釈・dropped 記録・警告の過大表現） | **完全Go** |
+| 2 | **完全Go**（Minor 1〜3 の修正を確認） | **完全Go** |
+| 3（警告矛盾の修正後・再審査） | **完全Go** | **完全Go**（指摘 0 件） |
+
+- 回1で修正した実装上の指摘: (1) exports 側の緩い bool 解釈（`bool("false")==True`）を `is True` に統一、(2) `audioTiming=false` の dropped 記録を `is not None` に、(3) 警告を「映像と元の音声は無変換」に限定し追加音声再エンコード時は付記。
+
+### テスト設計レビュー
+
+| 回 | GLM 5.3 Flash | Agy gemini-3.8-flash-high |
+|---|---|---|
+| 1 | 条件付きGo（Major 2: MKV/フォールバックの E2E 欠落、Minor 6） | — |
+| 2 | 条件付きGo（Minor 5: ログ文字化け・添付切断・mkv lossless・格子ガード・半開区間） | — |
+| 3 | 条件付きGo（Major 2: **timestamp 経路の矛盾警告を発見**、添付切断の再発） | 条件付きGo（同じ矛盾警告を独立に発見） |
+| 4 | **完全Go** | **完全Go**（新規指摘は非ブロッキングの Minor のみ） |
+
+- テスト設計レビューで見つかり修正した実バグ: `start_export` の「re-encode ルート向け」音声警告ブロックが `reencode` 判定の外にあり、lossless 経路（timestamp 経路・コンテンツ遡り経路）でも「音声のみ再エンコードします（無変換ではなくなります）」を誤って出していた。ブロック全体を `if reencode:` で囲み、E2E 9b/9c に「timestamp 経路の警告に『再エンコード』が混ざらないこと」の否定検証を追加。flv フォールバックの重複警告も 3 件→2 件に整理。
+- 追加したテスト: unit の `_audio_plan` 13 ケース（既定/ON/mp4/matroska/elst 非対応/余裕あり/負/追加音声/start_time 欠落/音声のみ）、E2E 9b（mp4・ビット一致・timestamp・格子一様性・映像コピー・否定警告）、9c（matroska 同等 + lossless 断言）、9d（flv フォールバック + 理由警告 + md5 不一致）、既定 OFF の回帰、不正 bool の 400、UI 静的ガード 6 件、設定永続化・音声 UI 挙動・preview 非送信。
+- 実測: E2E `RESULT: OK`（build d8cb94a6d840 = 作業ツリー、音声パケット md5 一致・173 packets・格子 [0.023219, 0.02322]）、UI 静的ガード 196 checks / 0 fail、unit OK、音声系 E2E（sync/upload/lossless/export_ops/api）すべて OK。
+- 残存する非ブロッキング Minor（レビュアー指摘・出荷を妨げない）: advance lossless 経路の否定警告検証なし／mute + `delayNoReencode` の組み合わせ未検証／9c の肯定警告検証・9d の逆方向否定検証が非対称／チャプター不在と `start_time` 欠落時 timestamp の E2E 裏付けは未実施（前者は静的ガードと仕様明記、後者は unit のみ）。`re_opts = options` の else 枝は no-op（可読性のみ）。
+
+- 既知の制約（意図した仕様）: 開始位置（edit list / block timestamp）を無視する再生アプリでは遅延が反映されない（既定を再エンコードにしている理由）。この経路ではチャプターが出ない。プレビューは焼き込みのため ON/OFF で聴感は変わらない（書き出しのみ）。

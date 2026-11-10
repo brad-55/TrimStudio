@@ -77,6 +77,18 @@ def err(code, message, status=400, detail=None):
     return JSONResponse(body, status_code=status)
 
 
+def _bool_value(value):
+    """Strict boolean parsing for new request options (true/1/on/yes ...)."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("true", "1", "on", "yes"):
+        return True
+    if text in ("false", "0", "off", "no", ""):
+        return False
+    raise ValueError("not a boolean: " + repr(value))
+
+
 def create_app():
     app = FastAPI(title="Trim", docs_url=None, redoc_url=None)
     cfg = Config()
@@ -772,6 +784,8 @@ def create_app():
                     dropped.append("addedSourceId")
                 if options.get("addedReencode"):
                     dropped.append("addedReencode")
+                if options.get("delayNoReencode") is not None:
+                    dropped.append("delayNoReencode")
                 if options.get("audioMode") not in (None, "original", "mute"):
                     dropped.append("audioMode=" + str(options.get("audioMode")))
                 if dropped:
@@ -779,8 +793,14 @@ def create_app():
                 # An explicit mute is not a timing choice, so it survives.
                 if options.get("audioMode") != "mute":
                     options["audioMode"] = "original"
-                for k in ("audioShiftMs", "addedShiftMs", "addedStartMs", "addedSourceId", "addedReencode"):
+                for k in ("audioShiftMs", "addedShiftMs", "addedStartMs", "addedSourceId",
+                          "addedReencode", "delayNoReencode"):
                     options.pop(k, None)
+        if options.get("delayNoReencode") is not None:
+            try:
+                options["delayNoReencode"] = _bool_value(options.get("delayNoReencode"))
+            except ValueError:
+                return err("invalid_request", "delayNoReencode must be a boolean", 400)
         audio_mode = options.get("audioMode") or "original"
         if audio_mode not in exports.AUDIO_MODES:
             return err("invalid_request", "audioMode must be one of " + ", ".join(exports.AUDIO_MODES), 400)

@@ -424,6 +424,11 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
           <div class='hint'>プラスで遅く、マイナスで速くなります。</div>
         </div>
 
+        <div class='field' style='margin-top:12px' id='delayNoReencodeBox'>
+          <label class='chk'><input type='checkbox' id='delayNoReencodeChk'>音声を無変換のまま遅らせる</label>
+          <div class='hint' id='delayNoReencodeHint'>区間の先頭に余裕がない正のずらし（例: IN=0 で +500ms）で、音声を<b>再エンコードせず</b>コンテナの開始位置（エディットリスト）で遅らせます。映像・音声とも無変換ですが、<b>開始位置を無視する一部の再生アプリでは、ずれが反映されない場合があります</b>。既定は OFF で、その場合は音声のみ再エンコードして正確に無音を先頭に付けます。この設定は<b>書き出しのみ</b>に適用されます（プレビューは常に焼き込み）。このモードではチャプターは出力されません。</div>
+        </div>
+
         <div class='field' style='margin-top:12px'>
           <label>追加する音声</label>
           <div class='row'>
@@ -774,7 +779,7 @@ function saveSettings(){
       audio:$("audioChk").checked,vbr:$("vbrInp").value,abr:$("abrInp").value,
       inSnap:$("inSnapSel").value,outMode:$("outModeSel").value,outDir:outDir,
       cropW:$("cropW").value,cropH:$("cropH").value,cropX:$("cropX").value,cropY:$("cropY").value,
-      cropSourceId:state.source?state.source.id:"",
+      cropSourceId:state.source?state.source.id:"", delayNoReencode:!!($("delayNoReencodeChk")&&$("delayNoReencodeChk").checked),
       zoom:currentUiZoom()};
     localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
   }catch(_){}
@@ -792,6 +797,7 @@ function loadSettings(){
   if(s.outDir)outDir=s.outDir;
   if(s.encoder)setSelectValue("encSel",s.encoder);
   if(typeof s.stabilize==="boolean")$("stabChk").checked=s.stabilize;
+  if(typeof s.delayNoReencode==="boolean"&&$("delayNoReencodeChk"))$("delayNoReencodeChk").checked=s.delayNoReencode;
   if(typeof s.audio==="boolean")$("audioChk").checked=s.audio;
   if(s.mode&&(s.mode==="lossless"||s.mode==="reencode")){state.mode=s.mode;$("modeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===s.mode));
     $("reOpts").style.display=s.mode==="reencode"?"block":"none";}
@@ -804,7 +810,7 @@ function loadSettings(){
 }
 function bindSettings(){
   ["contSel","outPath","lutSel","encSel","stabChk","audioChk","vbrInp","abrInp","inSnapSel","outModeSel",
-   "cropW","cropH","cropX","cropY"].forEach(id=>{const el=$(id);if(!el)return;
+   "cropW","cropH","cropX","cropY","delayNoReencodeChk"].forEach(id=>{const el=$(id);if(!el)return;
     el.addEventListener("change",saveSettings);});
 }
 async function boot(){
@@ -1204,6 +1210,7 @@ function collectOptions(){
   o.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);
   o.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);
   o.addedReencode=!!$("addedReencodeChk").checked;
+  o.delayNoReencode=!!$("delayNoReencodeChk")&&!!$("delayNoReencodeChk").checked;
   if(am==='bothMix')o.addedReencode=true;
   if(addedModeActive(am)&&!state.addedSource)throw new Error('追加音声を選択してください');
   return o;

@@ -65,6 +65,7 @@ const fetchStub = (url) => Promise.resolve({
   $("stabChk").checked = true; $("stabChk").dispatch("change");
   $("audioChk").checked = true; $("audioChk").dispatch("change");
   $("lutSel").value = LUT_PATH; $("lutSel").dispatch("change");
+  $("delayNoReencodeChk").checked = true; $("delayNoReencodeChk").dispatch("change");
   // a crop change arrives through the preset / drag path, which writes the inputs
   // directly instead of firing input events on them
   first.probe().state().source = { id: "clip-a", width: 1920, height: 1080 };
@@ -88,6 +89,7 @@ const fetchStub = (url) => Promise.resolve({
   check("settings: the stabilizer flag is saved", saved.stabilize === true, saved.stabilize);
   check("settings: the audio re-encode flag is saved", saved.audio === true, saved.audio);
   check("settings: a crop change is saved", String(saved.cropW) === "640", saved.cropW);
+  check("settings: the no-reencode delay option is saved", saved.delayNoReencode === true, saved.delayNoReencode);
   check("settings: the crop remembers which source it belongs to", saved.cropSourceId === "clip-a", saved.cropSourceId);
   check("settings: the LUT is saved", saved.lut === LUT_PATH, saved.lut);
   check("settings: the audio shift is NOT stored (it belongs to the clip)",
@@ -119,6 +121,8 @@ const fetchStub = (url) => Promise.resolve({
   check("settings: the audio flag comes back", $2("audioChk").checked === true);
   await waitFor(() => $2("lutSel").value === LUT_PATH, 2000);
   check("settings: the LUT comes back", $2("lutSel").value === LUT_PATH, $2("lutSel").value);
+  check("settings: the no-reencode delay option comes back",
+        $2("delayNoReencodeChk").checked === true, $2("delayNoReencodeChk").checked);
   check("settings: the audio timing starts clean after a reload",
         String($2("origShiftInp").value) === "0" && $2("radio:original").checked === true
         && st2.audioShiftMs === 0, [$2("origShiftInp").value, st2.audioShiftMs]);

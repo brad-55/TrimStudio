@@ -379,6 +379,73 @@ def main():
           and any("音声のみ再エンコード" in x for x in _w),
           "a positive shift without room bakes the delay into the audio: " + str((_p["offsets"], _w)))
 
+    # --- delayNoReencode: opt-in timestamp delay instead of re-encoding the audio ---
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4",
+                             {"audioShiftMs": 500, "delayNoReencode": True}, 0, 4_000_000, _w)
+    check(_p["offsets"]["audio"] == 500_000 and not _p["offsets"].get("audioDelayUs")
+          and _p.get("delayMode") == "timestamp"
+          and any("無変換のままタイムスタンプ" in x for x in _w),
+          "delayNoReencode copies the packets and uses the container timestamp: "
+          + str((_p["offsets"], _p.get("delayMode"), _w)))
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "webm",
+                             {"audioShiftMs": 500, "delayNoReencode": True}, 0, 4_000_000, _w)
+    check(_p["offsets"].get("audioDelayUs") == 500_000 and _p["offsets"]["audio"] == 0
+          and _p.get("delayMode") == "reencode"
+          and any("無変換の遅延に対応しない" in x for x in _w),
+          "an edit-list-less container falls back to the exact re-encode: " + str((_p["offsets"], _w)))
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4",
+                             {"audioShiftMs": 1500, "delayNoReencode": True}, 4_000_000, 8_000_000, _w)
+    check(_p["offsets"].get("audioPreUs") == 1_500_000 and not _p["offsets"].get("audioDelayUs")
+          and _p.get("delayMode") == "content",
+          "delayNoReencode leaves the existing content-delay path untouched")
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4",
+                             {"audioShiftMs": -1500, "delayNoReencode": True}, 0, 4_000_000, _w)
+    check(_p["offsets"]["audioSkipUs"] == 1_500_000 and _p["offsets"]["audio"] == 0
+          and _p.get("delayMode") == "none",
+          "delayNoReencode does not affect a negative shift")
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4", {"audioShiftMs": 500}, 0, 4_000_000, _w)
+    check(_p.get("delayMode") == "reencode",
+          "without the option the default stays the exact re-encode")
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "matroska",
+                             {"audioShiftMs": 500, "delayNoReencode": True}, 0, 4_000_000, _w)
+    check(_p["offsets"]["audio"] == 500_000 and _p.get("delayMode") == "timestamp",
+          "matroska supports the timestamp delay (block timestamps)")
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4",
+                             {"audioMode": "bothTracks", "addedSourceId": "add",
+                              "audioShiftMs": 500, "delayNoReencode": True}, 0, 4_000_000, _w)
+    check(_p["offsets"]["audio"] == 500_000 and not _p["offsets"].get("audioDelayUs")
+          and _p.get("delayMode") == "timestamp" and _p.get("added") is not None,
+          "bothTracks uses the timestamp delay as well: " + str(_p["offsets"]))
+    _no_start = [{"index": 0, "type": "video", "codec": "h264"},
+                 {"index": 1, "type": "audio", "codec": "aac", "channels": 2, "sample_rate": 48000}]
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _no_start, "mp4",
+                             {"audioShiftMs": 500, "delayNoReencode": True}, 0, 4_000_000, _w)
+    check(_p["offsets"]["audio"] == 500_000 and _p.get("delayMode") == "timestamp",
+          "a missing audio start_time still uses the timestamp delay when requested")
+    check(not _p["offsets"].get("audioPreUs") and not _p["offsets"].get("audioSkipUs"),
+          "the timestamp route does not move the cut (no reach-back)")
+    # audio-only exports already ride the container start (not the new option)
+    _audio_only = [{"index": 0, "type": "audio", "codec": "aac", "channels": 1, "sample_rate": 48000}]
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _audio_only, "mp4", {"audioShiftMs": 500}, 0, 4_000_000, _w)
+    check(_p.get("delayMode") == "timestamp" and _p["offsets"]["audio"] == 500_000,
+          "audio-only positive shifts report the timestamp delay: " + str(_p.get("delayMode")))
+    # bothTracks: the added track keeps its own zero placement
+    _w = []
+    _p = exports._audio_plan(_FakeDB(_row_aac), _sel, "mp4",
+                             {"audioMode": "bothTracks", "addedSourceId": "add",
+                              "audioShiftMs": 500, "delayNoReencode": True}, 0, 4_000_000, _w)
+    _add = _p.get("added") or {}
+    check(_add.get("startUs") == 0 and _add.get("headSkipUs") == 0 and _add.get("reencode") is False,
+          "bothTracks keeps the added track placement unchanged: " + str(_add))
     _w = []
     _p = _audio_plan(_FakeDB(_row_aac), _sel, "mp4", dict(_opt), 0, 4_000_000, _w)
     check(_p["added"]["reencode"] is False, "a compatible added codec is copied while the checkbox is off")

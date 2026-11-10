@@ -308,6 +308,7 @@ You can shift the audio later or earlier to fix lip-sync drift while keeping the
 - **Extra audio track**: add the audio of another file, with its own start position (ms) and shift.
 - **Auto sync**: analyses the two tracks and proposes an offset (several windows of a few seconds each).
 - **Modes**: original only / extra only / both tracks (two lossless tracks) / mix (audio is re-encoded) / mute.
+- **Delay without re-encoding (optional)**: when a positive shift has no room to reach back (e.g. IN=0 with +500 ms), the default re-encodes the audio to prepend real silence. Turn this option on to keep **every audio packet untouched** and express the delay with the container start time (edit list) instead. It is exact in players that honour the start offset, but **some players ignore it and show no shift**. This option applies to exports only (the preview is always baked). Chapters are not written in this mode.
 - **Applying a preview**: the timing is baked into a **preview-only file (proxy)** that plays as ONE video. After changing a setting, press **Apply to preview** (the button is disabled while it is being generated). Until you do, the original audio plays, so the shift is not audible yet. **Revert** goes back to the original playback.
 - **Opening another video resets the timing**: it is a per-video value, so a new video starts again at original only / 0 ms (it is not part of the remembered settings).
 - The exported audio packets stay bit-identical to the source when shifting; only the mix mode re-encodes audio.

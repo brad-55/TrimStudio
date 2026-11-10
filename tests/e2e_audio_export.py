@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.request
 
-BASE = "http://127.0.0.1:8003"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8003"
 D = os.path.join("data", "test", "aux")
 FF = os.path.join("tools", "ffmpeg", "bin", "ffmpeg.exe")
 FP = os.path.join("tools", "ffmpeg", "bin", "ffprobe.exe")
@@ -531,6 +531,138 @@ def main():
         check(abs(float(ast[0].get("start_time") or 0)) < 0.25,
               "audioTiming=false does not shift: start=" + str(ast[0].get("start_time")))
 
+    # --- 9b: delayNoReencode (opt-in; packets copied, container timestamp delay) ---
+    _o9path = os.path.abspath(os.path.join(D, "delay_copy_e2e_" + stamp + ".mp4"))
+    st, j = export(vid["id"], 0, 4_000_000, {"audioShiftMs": 500, "delayNoReencode": True,
+                                             "outputPath": _o9path})
+    out9 = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    check(j.get("status") == "done" and out9,
+          "delayNoReencode export succeeds: " + str(j.get("error"))[:300])
+    if out9:
+        _au = (j.get("result") or {}).get("audio") or {}
+        check(_au.get("delayMode") == "timestamp",
+              "the job reports the timestamp delay: " + str(_au)[:200])
+        _ast = [s for s in streams_of(out9) if s.get("codec_type") == "audio"]
+        _start = float((_ast[0] or {}).get("start_time") or 0) if _ast else 0
+        check(0.45 <= _start <= 0.55,
+              "the audio stream starts ~0.5s late: " + str(_start))
+        # interval is half-open [0.0, 4.0): a packet exactly at the out point belongs to
+        # neither side; the packet-count check below pins the boundary.
+        check(packet_md5(out9, "0:a") == packet_md5(vpath, "0:a", 0.0, 4.0),
+              "delayNoReencode keeps the audio packets bit exact (no re-encode)")
+        _src_a = [s for s in streams_of(vpath) if s.get("codec_type") == "audio"]
+        _same = bool(_ast and _src_a
+                     and _ast[0].get("codec_name") == _src_a[0].get("codec_name")
+                     and str(_ast[0].get("sample_rate")) == str(_src_a[0].get("sample_rate"))
+                     and _ast[0].get("channels") == _src_a[0].get("channels"))
+        check(_same, "the copied audio keeps the source codec parameters: " + str(_same))
+        _src_count = len([t0 for t0 in packet_times(vpath, "0:a") if 0.0 <= t0 < 4.0])
+        _out_count = len(packet_times(out9, "0:a"))
+        check(_out_count == _src_count,
+              "the copied audio keeps every source packet in the interval: %d vs %d"
+              % (_out_count, _src_count))
+        _pts = packet_times(out9, "0:a")
+        _steps = sorted({round(_pts[i + 1] - _pts[i], 6) for i in range(len(_pts) - 1)})
+        check(len(_pts) >= 2 and len(_steps) <= 2 and (max(_steps) - min(_steps) < 0.005),
+              "the delayed audio keeps a uniform packet grid: %d packets %s"
+              % (len(_pts), _steps[:3]))
+        _vsrc_n = len([t0 for t0 in packet_times(vpath, "0:v") if 0.0 <= t0 < 4.0])
+        _vout_n = len(packet_times(out9, "0:v"))
+        _vst = [s for s in streams_of(out9) if s.get("codec_type") == "video"]
+        _vsrc_s = [s for s in streams_of(vpath) if s.get("codec_type") == "video"]
+        check(bool(_vst and _vsrc_s and _vst[0].get("codec_name") == _vsrc_s[0].get("codec_name")
+                   and _vst[0].get("width") == _vsrc_s[0].get("width")
+                   and _vst[0].get("height") == _vsrc_s[0].get("height")
+                   and _vsrc_n <= _vout_n <= _vsrc_n + 2),
+              "the video stream is copied unchanged (codec/dimensions/packets, +2 priming max): %d vs %d"
+              % (_vout_n, _vsrc_n))
+        _res = j.get("result") or {}
+        check(_res.get("audioReencoded") is False and _res.get("lossless") is True,
+              "delayNoReencode is reported as lossless: " + str((_res.get("audioReencoded"), _res.get("lossless"))))
+        _w = (_res.get("warnings") or [])
+        check(any("タイムスタンプ" in str(x) for x in _w),
+              "the player caveat is warned: " + str(_w)[:220])
+        check(not any("再エンコード" in str(x) for x in _w),
+              "the timestamp route does not claim an audio re-encode: " + str(_w)[:220])
+
+    # the default must stay the exact re-encode (this option is not the default)
+    _o9bpath = os.path.abspath(os.path.join(D, "delay_reenc_e2e_" + stamp + ".mp4"))
+    st, j = export(vid["id"], 0, 4_000_000, {"audioShiftMs": 500, "outputPath": _o9bpath})
+    out9b = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    if out9b:
+        _au = (j.get("result") or {}).get("audio") or {}
+        check(_au.get("delayMode") == "reencode",
+              "the default still bakes the delay into the audio: " + str(_au)[:160])
+        _ast = [s for s in streams_of(out9b) if s.get("codec_type") == "audio"]
+        _start = float((_ast[0] or {}).get("start_time") or 0) if _ast else 0
+        # The AAC encoder priming shows up as a ~23-67ms start_time even for a "0"
+        # start; 250ms is a generous bound that still fails a baked 500ms silence.
+        check(abs(_start) < 0.25, "the default export still starts at zero: " + str(_start))
+        check(packet_md5(out9b, "0:a") != packet_md5(vpath, "0:a", 0.0, 4.0),
+              "the default export re-encodes the audio (unchanged behaviour)")
+
+    # --- 9c: the same option on matroska (block timestamps) ---
+    _o9m = os.path.abspath(os.path.join(D, "delay_copy_mkv_e2e_" + stamp + ".mkv"))
+    st, j = export(vid["id"], 0, 4_000_000, {"audioShiftMs": 500, "delayNoReencode": True,
+                                             "container": "matroska", "outputPath": _o9m})
+    out9m = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    check(j.get("status") == "done" and out9m,
+          "delayNoReencode on matroska succeeds: " + str(j.get("error"))[:300])
+    if out9m:
+        _au = (j.get("result") or {}).get("audio") or {}
+        _ast = [s for s in streams_of(out9m) if s.get("codec_type") == "audio"]
+        check(_au.get("delayMode") == "timestamp",
+              "matroska reports the timestamp delay: " + str(_au)[:160])
+        _start = float((_ast[0] or {}).get("start_time") or 0) if _ast else 0
+        check(0.45 <= _start <= 0.55, "the matroska audio starts ~0.5s late: " + str(_start))
+        _res = j.get("result") or {}
+        check(_res.get("audioReencoded") is False and _res.get("lossless") is True,
+              "matroska is reported as lossless: " + str((_res.get("audioReencoded"), _res.get("lossless"))))
+        check(packet_md5(out9m, "0:a") == packet_md5(vpath, "0:a", 0.0, 4.0),
+              "matroska keeps the audio packets bit exact")
+        _src_count = len([t0 for t0 in packet_times(vpath, "0:a") if 0.0 <= t0 < 4.0])
+        check(len(packet_times(out9m, "0:a")) == _src_count,
+              "matroska keeps every source packet in the interval")
+        _pts = packet_times(out9m, "0:a")
+        _steps = sorted({round(_pts[i + 1] - _pts[i], 6) for i in range(len(_pts) - 1)})
+        check(len(_pts) >= 2 and len(_steps) <= 2 and (max(_steps) - min(_steps) < 0.005),
+              "matroska keeps a uniform packet grid (no broken intervals): %d packets %s"
+              % (len(_pts), _steps[:3]))
+        _vst = [s for s in streams_of(out9m) if s.get("codec_type") == "video"]
+        _vsrc = [s for s in streams_of(vpath) if s.get("codec_type") == "video"]
+        check(bool(_vst and _vsrc and _vst[0].get("codec_name") == _vsrc[0].get("codec_name")
+                   and _vst[0].get("width") == _vsrc[0].get("width")
+                   and _vst[0].get("height") == _vsrc[0].get("height")),
+              "the video stream is still the copied source video")
+        _vsrc_n = len([t0 for t0 in packet_times(vpath, "0:v") if 0.0 <= t0 < 4.0])
+        _vout_n = len(packet_times(out9m, "0:v"))
+        check(_vsrc_n <= _vout_n <= _vsrc_n + 2,
+              "the matroska video keeps every source packet (+2 priming max): %d vs %d"
+              % (_vout_n, _vsrc_n))
+        _w = (_res.get("warnings") or [])
+        check(not any("再エンコード" in str(x) for x in _w),
+              "matroska does not claim an audio re-encode: " + str(_w)[:220])
+
+    # --- 9d: an edit-list-less container falls back to the exact re-encode ---
+    _o9f = os.path.abspath(os.path.join(D, "delay_fallback_e2e_" + stamp + ".flv"))
+    st, j = export(vid["id"], 0, 4_000_000, {"audioShiftMs": 500, "delayNoReencode": True,
+                                             "container": "flv", "outputPath": _o9f})
+    out9f = (j.get("result") or {}).get("outputPath") if j.get("status") == "done" else None
+    check(j.get("status") == "done" and out9f,
+          "the fallback container still exports: " + str(j.get("error"))[:300])
+    if out9f:
+        _res = j.get("result") or {}
+        _au = _res.get("audio") or {}
+        _w = _res.get("warnings") or []
+        check(_au.get("delayMode") == "reencode",
+              "flv falls back to the exact re-encode: " + str(_au)[:160])
+        check(_res.get("audioReencoded") is True,
+              "the fallback is reported as re-encoded")
+        check(any("無変換の遅延に対応しない" in str(x) for x in _w),
+              "the fallback reason is warned: " + str(_w)[:220])
+        check(packet_md5(out9f, "0:a") != packet_md5(vpath, "0:a", 0.0, 4.0),
+              "the fallback really re-encodes the audio")
+
     # --- 10: error paths (plan E2E 11/17) ---
     st, r = call("POST", "/api/exports", {"sourceId": aud["id"], "startUs": 0, "endUs": 2_000_000,
                                           "mode": "lossless", "options": {"audioMode": "mute", "audioTiming": True}})
@@ -542,6 +674,10 @@ def main():
     st, r = call("POST", "/api/exports", {"sourceId": vid["id"], "startUs": 0, "endUs": 2_000_000,
                                           "mode": "lossless", "options": {"audioMode": "added", "audioTiming": True}})
     check(st == 404, "added mode without a source is rejected: " + str(st))
+    st, r = call("POST", "/api/exports", {"sourceId": vid["id"], "startUs": 0, "endUs": 2_000_000,
+                                          "mode": "lossless",
+                                          "options": {"audioShiftMs": 500, "delayNoReencode": "maybe"}})
+    check(st == 400, "an invalid delayNoReencode value is rejected: " + str(st))
 
     print("RESULT:", "OK" if fails == 0 else "FAIL(%d)" % fails)
     return 0 if fails == 0 else 1

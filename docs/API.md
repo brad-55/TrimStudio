@@ -30,6 +30,8 @@
 - DELETE /api/sources/{id}?keepUpload= -> {deleted}（元ファイルは削除しない）
 - POST /api/exports {sourceId,startUs,endUs,mode,options} -> {jobId}
   options: {inSnap:prev|next, outMode:exact|keyframeBefore|keyframeAfter, lut, stabilize, crop:{w,h,x,y}, order, encoder, audioReencode, videoBitrate, audioBitrate, outputPath, container}
+    audioMode / audioShiftMs / addedShiftMs / addedStartMs / addedSourceId / addedReencode: 音声タイミング（docs/PLAN_AUDIO_EXPORT.md）
+    delayNoReencode: true|false（既定 false、他の型・値は 400）。区間先頭に余裕がない正のずらしで、音声を再エンコードせずコンテナの開始位置で遅らせる。開始位置を無視する再生アプリでは反映されない。この経路はチャプターを出力しない
   videoBitrate/audioBitrate: kbps。映像は未指定なら CRF、音声は未指定なら元の音声ビットレートを踏襲（不明時 192kbps）。
   非数値・0以下は 400 invalid_bitrate。startUs/endUs が整数でない場合や本文が不正な JSON の場合は 400 invalid_request。
   再エンコード音声のコーデックはコンテナ別（mp4系=aac、ogg/webm=libopus、asf=wmav2、mp3=libmp3lame、avi/flv=libmp3lame、mpeg=mp2、wav/aiff=pcm_s16le、flac=flac）。

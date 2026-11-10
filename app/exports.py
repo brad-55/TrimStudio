@@ -852,15 +852,34 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
             offsets["audioPreUs"] = shift
             offsets["audio"] = 0
         else:
-            # No earlier audio to reach back to.  A container timestamp (edit list) is
-            # ignored by several players, which made the shift vanish on playback, so
-            # bake the delay into the audio instead: the audio alone is re-encoded with
-            # a leading silence while the video stays a lossless copy.
-            offsets["audioDelayUs"] = shift
-            offsets["audio"] = 0
-            warnings.append("区間の先頭に余裕がないため、音声のみ再エンコードして "
-                            + str(int(round(shift / 1000.0))) +
-                            "ms の無音を先頭に付けてずらします（映像は無変換のまま。どの再生アプリでも反映されます）")
+            # No earlier audio to reach back to.  Default: bake the delay into the audio
+            # with a leading silence (exact and player-independent, but the audio is
+            # re-encoded).  Opt-in "delayNoReencode": express the same delay with the
+            # container start time and copy the packets untouched -- exact in players
+            # that honour edit lists / block timestamps, silently ignored by the ones
+            # that do not, which is why it is not the default.
+            delay_no_reencode = options.get("delayNoReencode") is True
+            # NOTE: the timestamp route loses chapters (the mux drops them when an
+            # audio offset is in play); it is documented in README/TEST_DESIGN.
+            if delay_no_reencode and container not in NO_ELST_CONTAINERS:
+                offsets["audio"] = shift
+                offsets["audioDelayUs"] = 0
+                _extra = "（追加音声は再エンコード）" if (added is not None and added.get("reencode")) else ""
+                warnings.append("区間の先頭に余裕がないため、音声を無変換のままタイムスタンプで "
+                                + str(int(round(shift / 1000.0))) +
+                                "ms 遅らせます（映像と元の音声は無変換のまま" + _extra +
+                                "。一部の再生アプリでは開始位置が無視され、"
+                                "ずれが反映されない場合があります）")
+            else:
+                if delay_no_reencode:
+                    warnings.append("このコンテナ(" + str(container) +
+                                    ")は無変換の遅延に対応しないため、音声のみ再エンコードして無音を"
+                                    "先頭に付けます（映像は無変換のまま）")
+                offsets["audioDelayUs"] = shift
+                offsets["audio"] = 0
+                warnings.append("区間の先頭に余裕がないため、音声のみ再エンコードして "
+                                + str(int(round(shift / 1000.0))) +
+                                "ms の無音を先頭に付けてずらします（映像は無変換のまま。どの再生アプリでも反映されます）")
     if mode == "added" and shift_us:
         warnings.append("追加のみモードでは元音声のずらし(audioShiftMs)は適用されません")
     if not has_video and mode in ("added", "bothTracks", "bothMix") and shift_us:
@@ -887,9 +906,17 @@ def _audio_plan(db, selected, container, options, start_us, end_us, warnings):
 
     if mode == "original" and added is None and not any(offsets.get(k) for k in ("video", "audio", "added", "audioSkipUs", "audioPreUs", "audioDelayUs")):
         return None
+    if offsets.get("audioDelayUs"):
+        delay_mode = "reencode"
+    elif offsets.get("audioPreUs"):
+        delay_mode = "content"
+    elif (offsets.get("audio") or 0) > 0:
+        delay_mode = "timestamp"
+    else:
+        delay_mode = "none"
     return {"mode": mode, "offsets": offsets,
             "origShiftUs": offsets.get("origShiftUs", 0), "addedShiftUs": offsets.get("addedShiftUs", 0),
-            "added": added, "lengthUs": length_us}
+            "added": added, "lengthUs": length_us, "delayMode": delay_mode}
 
 
 def _mix_filter(shift_us):
@@ -1019,34 +1046,38 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
         # realised with adelay, negative ones by trimming the head (both work
         # on every player, unlike container timestamps).  Muting and the added
         # track are honoured/reported here too.
+        # The warnings below fire only for re-encode routes: a lossless export
+        # realises the shift itself (content reach-back or container timestamp),
+        # so it must never claim that the audio was re-encoded.
         rap = built.get("audioPlan") or {}
         ram = rap.get("mode") or "original"
         rsel = list(built["selected"])
         rshift = int(rap.get("origShiftUs") or 0)
         raf = None
         re_opts = options
-        if ram == "mute":
-            if any(st.get("type") == "audio" for st in rsel):
-                rsel = [st for st in rsel if st.get("type") != "audio"]
-                built["warnings"].append("消音のため音声なしで書き出します")
-        else:
-            if ram in ("added", "bothTracks", "bothMix") and rap.get("added") is not None:
-                built["warnings"].append("再エンコードでは追加音声トラックを利用できません（無変換で書き出してください）")
-            if rshift and any(st.get("type") == "audio" for st in rsel):
-                if rshift < 0 and -rshift >= total:
+        if reencode:
+            if ram == "mute":
+                if any(st.get("type") == "audio" for st in rsel):
                     rsel = [st for st in rsel if st.get("type") != "audio"]
-                    built["warnings"].append("ずらし量が区間長以上のため音声なしで書き出します")
-                    rshift = 0
-                else:
-                    raf = _mix_filter(rshift)
-                    first_audio = next(st for st in rsel if st.get("type") == "audio")
-                    if not options.get("audioReencode") and ffmpeg_tools.copy_compatibility(first_audio, built["container"]):
-                        # NOTE: must not rebind `options` here (it is read everywhere
-                        # in this closure); use a copy for the builders below.
-                        re_opts = dict(options, audioReencode=True)
-                        built["warnings"].append("音声のずらしを反映するため音声のみ再エンコードします（無変換ではなくなります）")
+                    built["warnings"].append("消音のため音声なしで書き出します")
+            else:
+                if ram in ("added", "bothTracks", "bothMix") and rap.get("added") is not None:
+                    built["warnings"].append("再エンコードでは追加音声トラックを利用できません（無変換で書き出してください）")
+                if rshift and any(st.get("type") == "audio" for st in rsel):
+                    if rshift < 0 and -rshift >= total:
+                        rsel = [st for st in rsel if st.get("type") != "audio"]
+                        built["warnings"].append("ずらし量が区間長以上のため音声なしで書き出します")
+                        rshift = 0
                     else:
-                        re_opts = options
+                        raf = _mix_filter(rshift)
+                        first_audio = next(st for st in rsel if st.get("type") == "audio")
+                        if not options.get("audioReencode") and ffmpeg_tools.copy_compatibility(first_audio, built["container"]):
+                            # NOTE: must not rebind `options` here (it is read everywhere
+                            # in this closure); use a copy for the builders below.
+                            re_opts = dict(options, audioReencode=True)
+                            built["warnings"].append("音声のずらしを反映するため音声のみ再エンコードします（無変換ではなくなります）")
+                        else:
+                            re_opts = options
         built["reencodeFilterShiftMs"] = rshift if (raf and reencode) else 0
         log_debug("route", job=job.id, kind=built["kind"], audioMode=ram,
                   reencodeShiftUs=(rshift if raf else 0), audioDropped=not any(st.get("type") == "audio" for st in rsel))
@@ -1287,6 +1318,7 @@ def start_export(cfg, db, jobs, source, start_us, end_us, options):
                       "audio": {"timingOn": bool(options.get("audioTiming", True)),
                                 "mode": (built.get("audioPlan") or {}).get("mode") or options.get("audioMode") or "original",
                                 "requestedMs": {"orig": options.get("audioShiftMs"), "added": options.get("addedShiftMs")},
+                                "delayMode": _plan.get("delayMode") or "none",
                                 "appliedMs": {"video": round((_off.get("video") or 0) / 1000.0, 3),
                                               "audio": round((_off.get("audio") or 0) / 1000.0, 3),
                                               "added": round((_off.get("added") or 0) / 1000.0, 3)},
