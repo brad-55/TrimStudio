@@ -316,3 +316,27 @@ GLM によるレビューは計5回。第1回 条件付きGo（重大2・中5・
   - `e2e_audio_matrix.py --skip-full`: 106ケース / **1331 checks** / FAIL 0（`RESULT: OK`）
   - `e2e_audio_matrix.py --filter=full`: 4ケース（405s フル素材含む）/ **63 checks** / FAIL 0
   - 回帰: UI 静的ガード 196/0、unit OK、`e2e_audio_export` OK。
+
+
+## 音声タイミング調整パネルの既定折りたたみ（2026-11-11）
+
+- 要件: ページ表示時に「音声タイミング調整」を既定で折りたたむ。手動開閉・状態は保存しない。
+- 実装: `<details id='audioTimingDetails'>`（open 属性なし）。summary に「音声タイミング調整」と
+  現在の設定要約（`audioTimingSummary`）を表示。旧見出し label は削除し、プレビュー反映行・
+  `audioTimingBox` は details 内（summary 直下）に維持。開閉はブラウザ標準（追加の JS なし）。
+- テスト:
+  - 静的ガード: details 開始タグを属性順非依存で抽出して `open` 不在（`(?<![\w-])open(?![\w-])`）、
+    summary にタイトルと要約要素、旧 label 非残存、audioTimingBox が details 内にあること。
+  - DOM 挙動: `audioTimingDetails` の存在、初期要約（モード名＋元/追加）、`origShiftInp=250` と
+    `addedShiftInp=150` 入力への追従、mute 時の要約が
+    「消音（タイミング設定は使いません）」に一致すること。
+  - 回帰: static **201/0**、behaviour OK、settings_persist OK、timeline OK、smoke OK、unit OK。
+- 限界: この実行環境では headless Edge がサンドボックス（crashpad/mojo のアクセス拒否）で起動できず、
+  **実ブラウザの描画・開閉のスクリーンショット検証は未実施**。以下をリリース前の手動確認項目とする:
+  1. 初期表示で折りたたまれていること。
+  2. クリック／Enter／Space で開閉できること。
+  3. 要約（元/追加のずらし・mute）が表示されること。
+  4. 狭い幅で summary のレイアウトが崩れないこと。第2回レビューに合わせて `flex-wrap:wrap`・
+     `min-width:0`・`overflow-wrap:anywhere` を追加済み。
+  5. Tab キーで summary にフォーカスした際、`:focus-visible` のアウトラインが見えること。
+  6. 開いた状態でプレビュー反映・ずらし操作が従来どおり動くこと。

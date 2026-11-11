@@ -306,6 +306,23 @@ check("audio: a changed value marks the preview stale",
       "function markPreviewStale(" in qwen and "markPreviewStale();}" in qwen)
 check("audio: the preview state is reported",
       "id='previewDiag'" in qwen and "音声タイミング反映済み" in qwen)
+_audio_details = re.search(r"<details\b[^>]*\bid=['\"]audioTimingDetails['\"][^>]*>", qwen)
+_audio_details_box = slice_between(qwen, "id='audioTimingDetails'", "</details>") or ""
+check("audio: the timing panel is collapsed by default",
+      bool(_audio_details) and not re.search(r"(?<![\w-])open(?![\w-])", _audio_details.group(0))
+      and "id='audioTimingBox'" in _audio_details_box)
+check("audio: the collapsed summary shows the current setting",
+      "音声タイミング調整" in qwen and "id='audioTimingSummary'" in qwen
+      and "function updateAudioTimingSummary(" in qwen
+      and re.search(r"updateAudioTimingSummary\s*\(\s*\)\s*;", qwen) is not None)
+check("audio: the old duplicate timing heading is gone",
+      "<label>音声タイミング調整</label>" not in qwen)
+check("audio: the timing details rely on defined css vars and helpers",
+      "--line:" in qwen and "--muted:" in qwen
+      and "function audioModeValue(" in qwen and "function clampMs(" in qwen)
+_audio_ui_body = slice_between(qwen, "function updateAudioUI(){", "function setPreviewState(") or ""
+check("audio: the timing summary is refreshed from updateAudioUI",
+      "updateAudioTimingSummary();" in _audio_ui_body)
 _bind = slice_between(qwen, "function bindSettings()", "function boot()") or ""
 check("audio: the no-reencode delay option exists and defaults OFF",
       "id='delayNoReencodeChk'" in qwen and "id='delayNoReencodeChk' checked" not in qwen)

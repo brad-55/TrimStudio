@@ -51,6 +51,32 @@ vid.play = function () { vid._plays = (vid._plays || 0) + 1; vid.paused = false;
 
 S.updateAudioUI();
 check("preview: the apply button exists", !!$("previewApplyBtn"));
+// --- G. the timing panel is collapsed by default and summarised in the summary row ---
+check("panel: the details element exists", !!$("audioTimingDetails"));
+check("panel: the summary is filled on boot",
+      /元のみ|追加のみ|両方|同時/.test(String($("audioTimingSummary").textContent))
+      && String($("audioTimingSummary").textContent).indexOf("元") >= 0,
+      $("audioTimingSummary").textContent);
+$("origShiftInp").value = "250";
+$("origShiftInp").dispatch("input");
+check("panel: the summary follows the shift",
+      String($("audioTimingSummary").textContent).indexOf("250") >= 0,
+      $("audioTimingSummary").textContent);
+$("addedShiftInp").value = "150";
+$("addedShiftInp").dispatch("input");
+check("panel: the summary follows the added shift too",
+      String($("audioTimingSummary").textContent).indexOf("150") >= 0,
+      $("audioTimingSummary").textContent);
+check("panel: the summary shows both shifts exactly",
+      $("audioTimingSummary").textContent === "元のみ / 元 +250 ms / 追加 +150 ms",
+      $("audioTimingSummary").textContent);
+$("radio:mute").checked = true;
+$("radio:mute").dispatch("change");
+check("panel: mute is summarised without shift values",
+      $("audioTimingSummary").textContent === "消音（タイミング設定は使いません）",
+      $("audioTimingSummary").textContent);
+$("radio:original").checked = true;
+$("radio:original").dispatch("change");
 check("preview: revert starts hidden", $("previewRevertBtn").hidden === true);
 check("preview: the state starts as 未反映", String($("previewState").textContent).indexOf("未反映") >= 0, $("previewState").textContent);
 

@@ -389,18 +389,30 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         .as-sw input:checked~.as-state{color:var(--ok)}
         .as-sw input:focus-visible+.as-track{box-shadow:0 0 0 3px rgba(74,163,255,.35)}
         .as-state{font-family:var(--mono);font-weight:800}
+        .audio-timing-details{border:1px solid var(--line);border-radius:12px;background:#0d1119;padding:0 12px 10px;margin-top:14px}
+        .audio-timing-details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 0;font-weight:800;user-select:none}
+        .audio-timing-details>summary:focus-visible{outline:2px solid rgba(74,163,255,.65);outline-offset:2px;border-radius:6px}
+        .audio-timing-details>summary::-webkit-details-marker{display:none}
+        .audio-timing-details>summary::before{content:'▶';display:inline-block;font-size:10px;color:var(--muted);transition:transform .15s}
+        .audio-timing-details[open]>summary::before{transform:rotate(90deg)}
+        .audio-timing-details>summary #audioTimingSummary{margin-left:auto;font-weight:400;min-width:0;overflow-wrap:anywhere}
+        .audio-timing-details .field{margin-top:10px}
         </style>
-        <div class='field' style='margin-top:12px'>
-          <label>音声タイミング調整</label>
-          <div class='row' style='align-items:center;gap:8px;flex-wrap:wrap'>
-            <button class='btn' id='previewApplyBtn' type='button'>プレビューに反映</button>
-            <button class='btn sm' id='previewRevertBtn' type='button' hidden>元に戻る</button>
-            <span class='hint mono' id='previewState'>未反映</span>
+        <details id='audioTimingDetails' class='audio-timing-details'>
+          <summary>
+            <span class='audio-timing-title'>音声タイミング調整</span>
+            <span class='hint mono' id='audioTimingSummary'>元のみ / 元 0 ms / 追加 0 ms</span>
+          </summary>
+          <div class='field'>
+            <div class='row' style='align-items:center;gap:8px;flex-wrap:wrap'>
+              <button class='btn' id='previewApplyBtn' type='button'>プレビューに反映</button>
+              <button class='btn sm' id='previewRevertBtn' type='button' hidden>元に戻る</button>
+              <span class='hint mono' id='previewState'>未反映</span>
+            </div>
+            <div class='hint' id='audioTimingState' style='margin-top:2px'>この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。</div>
           </div>
-          <div class='hint' id='audioTimingState' style='margin-top:2px'>この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。</div>
-        </div>
 
-        <div id='audioTimingBox'>
+          <div id='audioTimingBox'>
 
         <div class='field' style='margin-top:12px' id='origShiftBox'>
           <label>元の音声のずらし (ms)</label>
@@ -480,6 +492,7 @@ a.act{text-decoration:none;display:inline-flex;align-items:center}
         <label class='chk' style='margin-top:8px'><input type='checkbox' id='addedReencodeChk'>追加した音声のみ再エンコード</label>
 <div class='hint' id='addedReencodeHint' style='margin-top:2px'>追加した音声<b>だけ</b>を再エンコードして出力します。出力形式（コンテナ）がその音声をそのまま入れられないときや、音声形式をそろえたいときに ON にします。ON の間は追加音声が再圧縮され、OFF のまま無変換で入れられない音声を選ぶと書き出しがエラーになります（映像と元の音声はどちらも無変換のまま）。</div>
         </div>
+        </details>
       </div>
     </section>
 
@@ -1729,6 +1742,7 @@ function clampMs(v){v=parseInt(v,10);if(!isFinite(v))v=0;return v;}
 function startMsVal(v){v=parseInt(v,10);if(!isFinite(v)||v<0)v=0;return v;}
 function audioShiftValue(target){return target==='orig'?clampMs($("origShiftInp")?$("origShiftInp").value:0):clampMs($("addedShiftInp")?$("addedShiftInp").value:0);}
 function msLabel(v){return (v>0?'+':'')+v+' ms';}
+function updateAudioTimingSummary(){const el=$("audioTimingSummary");if(!el)return;const mode=audioModeValue();if(mode==='mute'){el.textContent='消音（タイミング設定は使いません）';return;}const names={original:'元のみ',added:'追加のみ',bothTracks:'両方',bothMix:'同時'};const o=clampMs($("origShiftInp")?$("origShiftInp").value:0);const a=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);el.textContent=(names[mode]||'元のみ')+' / 元 '+msLabel(o)+' / 追加 '+msLabel(a);}
 /* Display scale.  The layout is designed at desktop size and reads best a bit smaller,
    so 75% is the default; the picker lets each device override it. */
 function defaultUiZoom(){return (window.innerWidth&&window.innerWidth<700)?100:75;}
@@ -1768,7 +1782,7 @@ function resetAudioTiming(){
   updateAudioUI();
 }
 function renderAddedInfo(){const el=$("addedInfo");if(!el)return;if(state.addedSource){const d=state.addedSource.durationUs;el.textContent=(state.addedSource.name||'追加音声')+(d!=null?' / '+fmt(d):'');}else{el.textContent='未選択';}}
-function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("audioTimingState"))$("audioTimingState").textContent=(mode==='mute')?"消音が選ばれています。書き出しでは音声トラックを持ちません（タイミング設定は使いません）。":"この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。";if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("previewApplyBtn"))$("previewApplyBtn").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();}
+function updateAudioUI(){const mode=audioModeValue();state.audioMode=mode;state.audioShiftMs=clampMs($("origShiftInp")?$("origShiftInp").value:0);state.addedShiftMs=clampMs($("addedShiftInp")?$("addedShiftInp").value:0);state.addedStartMs=startMsVal($("addedStartInp")?$("addedStartInp").value:0);const hasSrc=!!state.source;const hasAdded=!!state.addedSource;const activeAdded=hasAdded&&addedModeActive(mode);const activeOrig=hasSrc&&origModeActive(mode);document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.disabled=!hasSrc);const origOff=!activeOrig;if($("origShiftInp"))$("origShiftInp").disabled=origOff;if($("origShiftRange"))$("origShiftRange").disabled=origOff;if($("origShiftFine"))$("origShiftFine").disabled=origOff;document.querySelectorAll('[data-shift="orig"]').forEach(b=>b.disabled=origOff);const addedOff=!(hasSrc&&activeAdded);if($("addedShiftInp"))$("addedShiftInp").disabled=addedOff;if($("addedShiftRange"))$("addedShiftRange").disabled=addedOff;if($("addedShiftFine"))$("addedShiftFine").disabled=addedOff;document.querySelectorAll('[data-shift="added"]').forEach(b=>b.disabled=addedOff);if($("addedStartInp"))$("addedStartInp").disabled=addedOff;if($("audioSyncBtn"))$("audioSyncBtn").disabled=addedOff;if($("addedBrowseBtn"))$("addedBrowseBtn").disabled=!hasSrc||mode==='mute';if($("audioTimingState"))$("audioTimingState").textContent=(mode==='mute')?"消音が選ばれています。書き出しでは音声トラックを持ちません（タイミング設定は使いません）。":"この設定は書き出しに使われます。「プレビューに反映」を押すと、このタイミングを焼き込んだ確認用の動画を作ります。";if($("addedFileInput"))$("addedFileInput").disabled=!hasSrc||mode==='mute';if($("previewApplyBtn"))$("previewApplyBtn").disabled=!hasSrc||mode==='mute';if($("addedReencodeChk"))$("addedReencodeChk").disabled=!hasSrc||!hasAdded;const hints={original:'元動画の音声を使います。',added:'追加音声のみ使います（元音声なし）。',bothTracks:'元と追加をそれぞれ別トラックで書き出します。',bothMix:'元と追加を同時にミックスします。音声のみ再エンコードします。',mute:'音声を消音します。'};if($("audioModeHint"))$("audioModeHint").textContent=hints[mode]||hints.original;if($("audioMixWarn"))$("audioMixWarn").hidden=mode!=='bothMix';renderAddedInfo();updateAudioTimingSummary();}
 /* ---------- preview proxy: bake the timing, then play ONE file ---------- */
 function setPreviewState(text,color){const el=$("previewState");if(!el)return;el.textContent=text;el.style.color=color||"";}
 function markPreviewStale(){if(!previewUrl)return;setPreviewState("未反映（設定が変更されました）","#e0a030");}
@@ -1836,7 +1850,7 @@ const _openLocal=openLocal;openLocal=async function(path){if(pendingAddedOpen){p
 const _doUpload=doUpload;doUpload=async function(file){if(pendingAddedUpload){pendingAddedUpload=false;clearErr();toast('追加音声をアップロード中…');const fd=new FormData();fd.append('file',file);try{const d=await api('/api/sources/upload',{method:'POST',body:fd,timeoutMs:1800000});state.addedSource=d.source;renderAddedInfo();updateAudioUI();toast('追加音声を追加: '+(d.source.name||''));}catch(e){showErr('追加音声のアップロード失敗: '+e.message);}return;}await _doUpload(file);};
 const _hideBrowse=hideBrowse;hideBrowse=function(){pendingAddedOpen=false;pendingAddedUpload=false;_hideBrowse();};
 document.querySelectorAll('input[name="audioModeRadio"]').forEach(r=>r.addEventListener('change',()=>{updateAudioUI();markPreviewStale();}));
-['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const live=$(target==='orig'?'origShiftVal':'addedShiftVal');if(live)live.textContent=msLabel(c);if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();markPreviewStale();});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
+['origShiftInp','addedShiftInp'].forEach(id=>{const el=$(id);if(!el)return;el.addEventListener('input',()=>{const target=id==='origShiftInp'?'orig':'added';const c=clampMs(el.value);const live=$(target==='orig'?'origShiftVal':'addedShiftVal');if(live)live.textContent=msLabel(c);if(target==='orig')state.audioShiftMs=c;else state.addedShiftMs=c;saveSettings();markPreviewStale();updateAudioTimingSummary();});el.addEventListener('change',()=>{setAudioShift(id==='origShiftInp'?'orig':'added',el.value);});});
   /* The sliders are relative jog controls: the centre always means the value in
      use, so dragging right/left nudges it instead of jumping to an absolute ms. */
   [['origShiftFine','orig'],['addedShiftFine','added'],['origShiftRange','orig'],['addedShiftRange','added']].forEach(function(pair){
