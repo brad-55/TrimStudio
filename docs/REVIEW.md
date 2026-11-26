@@ -547,3 +547,46 @@ Agy:
 - **実ブラウザ検証の限界**: サンドボックスのため headless Edge が起動できず（crashpad/mojo 0x5）、
   スクリーンショット・実開閉は未実施。TEST_DESIGN に手動確認チェックリスト（折りたたみ初期状態・
   クリック/Enter/Space・要約・狭幅レイアウト・展開後の操作）を明記し、デプロイ後に目視確認する。
+
+
+## Gemini 4 Hydrogen 外部レビュー Critical 対応（2026-11-18〜26, v0.3.3）
+
+### 外部レビューと対応範囲
+- agy 経由 Gemini 4 Hydrogen (xhigh) のアプリ/ドキュメント別レビューは、当初ともに「却下」。
+  本ラウンドでは Critical 3+3 件を対象に、addedStartMs の解釈統一、UI ヒント逆符号、
+  reencode + 追加音声の黙殺防止、README/API.md/TEST_DESIGN の陳腐化を修正した。
+- アプリ/文書の Major backlog（出力尺・mux オフセット・負 -ss・並列予約・Tailscale/Host 検証等）は
+  今回のスコープ外として [docs/PLAN_REVIEW_TRIAGE_HYDROGEN.md](PLAN_REVIEW_TRIAGE_HYDROGEN.md) に明記。
+  次ラウンドの課題であり、本変更で新規発生したものではない。
+
+### 実装とレビュー履歴
+- **計画**: GLM 5.3 Flash と Agy Gemini 3.8 Flash High で繰り返し、Agy 完全Go。
+- **初回成果物**: GLM 完全Go。opencode 経由 DeepSeek 4.1 Flash free は条件付きGoで、
+  永続プレビューキャッシュ版未更新（preview-v16 へ対応）と再エンコード時の stale 通知を指摘。
+- **第2回成果物**: DeepSeek が preview の ±600000ms クランプと _INFLIGHT 登録競合を指摘。
+  preview/export の整数 ms 契約を無制限に統一し、音声なし追加ソース・非整数/bool を 400 にした。
+- **第3回成果物**: DeepSeek が queued ジョブのキャンセル残留を指摘。
+  Job._run の finally で必ず呼ばれる on_finish hook を導入し、preview 側も同じロックで
+  自分のジョブだけ削除する構成にした。終端/キャンセル済みの再利用も禁止した。
+- **最終**: GLM 5.3 Flash と **agy 経由 Gemini 4 Neon (xhigh)** がともに **完全Go**。
+  DeepSeek free は途中で利用枠超過となったため、ユーザー指示により Neon へ切り替えた。
+
+### 最終検証
+- unit OK
+- static 205 checks / fail 0
+- check_api_docs OK（39ルート、追加/削除なし）
+- test_preview_filters OK
+- test_preview_dedupe OK（runner 先行開始・cancelled/done の再登録防止、unused addedSourceId）
+- test_preview_cancel_race OK（実 JobManager(concurrency=1) で queued キャンセル→キー残留なし→
+  同一キー新規ジョブ作成→done→再び残留なし）
+- test_audio_ui_behaviour OK（reencode/追加ソース差替えの stale 通知）
+- e2e_audio_export RESULT OK
+- e2e_preview_api RESULT OK（同時要求1ジョブ、600000ms 超と隣接キー、音声なし追加 400、
+  original + 音声なし addedSourceId は 200/done、非整数/bool 400）
+- e2e_audio_matrix 110ケース / checks=1394 / fail=0
+- settings_persist / timeline / smoke OK
+
+### Neon の任意改善（出荷阻害なし）
+- 空ラッパー guarded と旧コメントの整理、キャンセル競合の追加2経路テスト、
+  test_preview_cancel_race の一時ディレクトリ削除は次回の小改善候補。
+

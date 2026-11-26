@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import uuid
 from pathlib import Path
 
@@ -20,7 +21,9 @@ from . import ffmpeg_tools, media
 from .exports import _mix_filter
 from .proc import run_ffmpeg_job
 
-IMPL = "preview-v15"
+# Bump whenever the baked audio graph changes semantics; persistent cache hits must never
+# return media rendered with an older addedStartMs/shift interpretation.
+IMPL = "preview-v16"
 VALID_KEY = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -35,6 +38,7 @@ class ProxyRequired(Exception):
 # Same-key builds are de-duplicated in this process only (the server is single-process by
 # design: the job semaphore and path reservations are in-memory too).
 _INFLIGHT = {}
+_INFLIGHT_LOCK = threading.Lock()
 
 
 def _lp(path):
@@ -125,7 +129,10 @@ def cache_key(source, variant_path, options, resolved_variant):
         "addedStartMs": int(options.get("addedStartMs") or 0),
         "addedSourceId": options.get("addedSourceId") or None,
     }
-    added_id = payload["addedSourceId"]
+    # original/mute ignore a stale added selection just like the API/export: it must
+    # neither be probed nor split the cache into different entries for identical output.
+    added_id = payload["addedSourceId"] if payload["audioMode"] in ("added", "bothTracks", "bothMix") else None
+    payload["addedSourceId"] = added_id
     payload["addedSig"] = content_sig(_source_path(options.get("_addedSource"))) if added_id else None
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha1(blob).hexdigest()
@@ -166,21 +173,33 @@ def _probe_streams(cfg, path):
         raise ValueError("cannot probe " + str(path) + ": " + str(exc))
 
 
-def _audio_filter(tot_sec, added_tot_sec, duration_s, rate, has_orig, has_added):
+def _audio_filter(tot_sec, added_tot_sec, duration_s, rate, has_orig, has_added, added_skip_s=0.0):
     """Build the preview audio graph: per-input shift, optional mix, then a fixed length.
 
-    The length stage is what makes the preview match the export: the audio always ends up
-    exactly as long as the video, so a short source is padded with silence and a long one
-    is trimmed.
+    addedStartMs is the offset INSIDE the added file (same as the export's -ss), so the
+    added input is trimmed by that amount before its shift.  Everything is normalised to
+    exactly duration_s before amix, so an empty/short added track can never shorten the
+    preview and a long one is cut at the interval end.
     """
-    def stage(index, total, rate_hz):
-        parts = ["asetpts=PTS-STARTPTS"]
+    def stage(index, total, rate_hz, skip_s=0.0):
+        parts = []
+        if total < -0.0005:
+            # Advance = trim the head; fold it into the same atrim as addedStartMs so the
+            # graph stays one cut and the negative delay never reaches adelay.
+            skip_s += -total
+            total = 0.0
+        if skip_s > 0.0005:
+            parts.append("atrim=start=%.6f" % skip_s)
+        parts.append("asetpts=PTS-STARTPTS")
         if abs(total) >= 0.0005:
             # Same helper the export uses for its shift, so the two can never disagree
             # about the sign or the units (ms for adelay, seconds for atrim).
             parts.append(_mix_filter(int(round(total * 1e6))))
         parts.append("aresample=%d" % rate_hz)
         parts.append("aformat=sample_fmts=fltp:sample_rates=%d:channel_layouts=stereo" % rate_hz)
+        parts.append("apad=whole_dur=%.6f" % duration_s)
+        parts.append("atrim=end=%.6f" % duration_s)
+        parts.append("asetpts=PTS-STARTPTS")
         return "[" + str(index) + ":a:0]" + ",".join(parts)
 
     chains = []
@@ -189,12 +208,12 @@ def _audio_filter(tot_sec, added_tot_sec, duration_s, rate, has_orig, has_added)
         chains.append(stage(1, tot_sec, rate) + "[ao]")
         outs.append("[ao]")
     if has_added:
-        chains.append(stage(2 if has_orig else 1, added_tot_sec, rate) + "[ad]")
+        chains.append(stage(2 if has_orig else 1, added_tot_sec, rate, added_skip_s) + "[ad]")
         outs.append("[ad]")
     if not outs:
         return None
     if len(outs) == 2:
-        chains.append("[ao][ad]amix=inputs=2:normalize=0:duration=longest[am]")
+        chains.append("[ao][ad]amix=inputs=2:normalize=0:duration=first[am]")
     else:
         chains.append(outs[0] + "anull[am]")
     chains.append("[am]apad=whole_dur=%.6f,atrim=end=%.6f,asetpts=PTS-STARTPTS[aout]"
@@ -203,6 +222,8 @@ def _audio_filter(tot_sec, added_tot_sec, duration_s, rate, has_orig, has_added)
 
 
 def _resolve_added(db, options):
+    if (options.get("audioMode") or "original") not in ("added", "bothTracks", "bothMix"):
+        return None
     added_id = options.get("addedSourceId")
     if not added_id:
         return None
@@ -255,14 +276,6 @@ def start_preview(cfg, db, jobs, source, options):
         key = cache_key(source, variant_path, options, variant)
     except OSError as exc:
         raise ValueError("source file is not readable: " + str(exc))
-    cached = hit(cfg, key)
-    if cached is not None:
-        return None, variant, key, cached
-    running = _INFLIGHT.get(key)
-    if running is not None:
-        # Same settings requested twice (two devices, a double tap): one build is enough.
-        return running, variant, key, None
-
     files = paths(cfg, key)
 
     def runner(job):
@@ -291,18 +304,19 @@ def start_preview(cfg, db, jobs, source, options):
         orig_video_start_us = _stream_start_us(orig_info, "video")
         orig_audio_start_us = _stream_start_us(orig_info, "audio")
         added_info = _probe_streams(cfg, added["path"]) if added else {}
-        added_start_us = _stream_start_us(added_info, "audio")
 
         mode = options.get("audioMode") or "original"
         if mode not in ("original", "added", "bothTracks", "bothMix", "mute"):
             mode = "original"
         shift_s = int(options.get("audioShiftMs") or 0) / 1000.0
         added_shift_s = int(options.get("addedShiftMs") or 0) / 1000.0
-        added_place_s = int(options.get("addedStartMs") or 0) / 1000.0
+        added_skip_s = max(0, int(options.get("addedStartMs") or 0)) / 1000.0
         rel_s = (orig_audio_start_us - orig_video_start_us) / 1e6
-        # The added track is its OWN timeline: only its own leading offset matters, it has
-        # nothing to do with the video's start.
-        added_rel_s = added_start_us / 1e6
+        # addedStartMs is the offset inside the added file.  The export reaches it with an
+        # output-side -ss (PTS based), so the preview mirrors that with atrim (also PTS
+        # based) and does NOT add the added file's own start_time as a delay: that would
+        # shift the preview by the file's start twice.
+        added_rel_s = 0.0
         # A delay past the end is silence anyway; clamping keeps ffmpeg from generating a
         # huge silent buffer for a nonsense addedStart value.
         limit_s = duration_s + 0.001
@@ -344,11 +358,12 @@ def start_preview(cfg, db, jobs, source, options):
         if mode != "mute" and (has_orig or has_added):
             graph = _audio_filter(
                 clamp_shift(shift_s + rel_s),
-                clamp_shift(added_place_s + added_shift_s + added_rel_s),
+                clamp_shift(added_shift_s + added_rel_s),
                 duration_s,
                 rate,
                 has_orig,
                 has_added,
+                added_skip_s,
             )
         # Map the video FIRST: an MP4 whose stream 0 is audio makes some players
         # (notably iOS Safari) slow or refuse to start, and the export always has video first.
@@ -396,6 +411,8 @@ def start_preview(cfg, db, jobs, source, options):
             "addedShiftMs": int(options.get("addedShiftMs") or 0),
             "addedStartMs": int(options.get("addedStartMs") or 0),
         }
+        if job.is_cancelled():
+            raise RuntimeError("cancelled")
         os.replace(_lp(part), _lp(files["mp4"]))
         with open(_lp(files["json"]), "w", encoding="utf-8") as handle:
             json.dump(meta, handle, ensure_ascii=False)
@@ -404,20 +421,33 @@ def start_preview(cfg, db, jobs, source, options):
         meta["url"] = "/api/preview/media/" + key + ".mp4"
         return meta
 
-    box = {}
-
-    def guarded(job):
-        box["job"] = job
-        try:
-            return runner(job)
-        finally:
-            # Only clear our own entry: a fast job may finish before we even return.
-            if _INFLIGHT.get(key) is box.get("job"):
+    # jobs.create() starts the worker immediately. Keep the cache check, duplicate check,
+    # creation and registration atomic, and let guarded() take the same lock when it ends.
+    # A running job is registered even if its runner started before create() returned;
+    # terminal jobs are never registered.
+    with _INFLIGHT_LOCK:
+        cached = hit(cfg, key)
+        if cached is not None:
+            return None, variant, key, cached
+        running = _INFLIGHT.get(key)
+        if running is not None:
+            if running.status in ("done", "error", "cancelled") or running.is_cancelled():
                 _INFLIGHT.pop(key, None)
+            else:
+                # Same settings requested twice (two devices, a double tap): one build is enough.
+                return running, variant, key, None
 
-    job = jobs.create("preview", source.get("id"), guarded)
-    if box.get("job") is None:
-        _INFLIGHT[key] = job      # not started yet: normal case
-    elif _INFLIGHT.get(key) is None:
-        _INFLIGHT[key] = job
+        def guarded(job):
+            return runner(job)
+
+        def finish(job):
+            # Job._run calls this even when a queued job is cancelled before guarded()
+            # could run, so no key can remain stuck on a cancelled job.
+            with _INFLIGHT_LOCK:
+                if _INFLIGHT.get(key) is job:
+                    _INFLIGHT.pop(key, None)
+
+        job = jobs.create("preview", source.get("id"), guarded, on_finish=finish)
+        if job.status not in ("done", "error", "cancelled") and not job.is_cancelled():
+            _INFLIGHT[key] = job
     return job, variant, key, None

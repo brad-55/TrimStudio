@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # Keep in sync with app/main.py:_build_stamp
-STAMP_TARGETS = ["app/main.py", "app/exports.py", "app/jobs.py", "app/ffmpeg_tools.py",
-                 "app/sources.py", "app/audio_sync.py", "app/security.py", "app/config.py",
-                 "web-qwen/index.html"]
+STAMP_TARGETS = ["app/main.py", "app/exports.py", "app/preview.py", "app/jobs.py",
+                 "app/ffmpeg_tools.py", "app/sources.py", "app/audio_sync.py",
+                 "app/security.py", "app/config.py", "web-qwen/index.html"]
 
 
 def local_build_stamp():

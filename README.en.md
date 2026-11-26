@@ -28,11 +28,11 @@ The screen while operating from a phone.
 |---|---|
 | ![Preview](docs/images/preview.jpg) | ![Export settings](docs/images/export.jpg) |
 
-- **Preview**: the **crop box** (the area to keep; its size and position are shown at the top left, e.g. 2098x1180 (x229, y0)) sits over the video. Below it are **IN / now / OUT** thumbnails, and the timeline is at the bottom. The **yellow ticks** on the timeline are **keyframes** (the reference frames of the video). The red band shows the range that will be cut out.
+- **Preview**: the **crop box** (the area to keep; its size and position are shown at the top left, e.g. 2098x1180 (x229, y0)) sits over the video. Below it are **IN / now / OUT** thumbnails, and the timeline is at the bottom. The **white ticks** on the timeline are **keyframes** (the reference frames of the video). The red-to-orange band shows the range that will be cut out.
 - **Export settings**: choose **Lossless / Re-encode**, the **output folder** (browse and check), the container (the file format that wraps the video, such as MP4), IN snap, OUT mode and the range to export. The green button at the bottom is **Export**.
 
 > Note: the video area in the screenshots is blurred so the content cannot be identified.
-> Note: the screenshots show an older version. The timeline is now split into two rows: the top row is IN/OUT and the bottom row is the playback position.
+> Note: the screenshots show an older version. The timeline is now split into two rows: the **top row is the playback position and the bottom row is IN/OUT**.
 
 ---
 
@@ -175,11 +175,13 @@ Choosing **Re-encode** shows a LUT (colour look-up table) field. You can put LUT
 
 ### Seek bar and IN/OUT (trim) controls
 
-You drive it with three **handles (◆)**. Their **vertical positions differ**, so you cannot grab the wrong one.
+The bar has two rows: the **upper row moves the playback position, the lower row moves IN / OUT**. The handles look different so you cannot grab the wrong one.
 
-- **Playback position (white line)**: its ◆ sits in the **upper part of the bar**. Grab near the ◆ (about 40 px either side) and drag left or right to move the playback position.
-- **IN / OUT (red lines)**: their ◆ sit in the **lower part of the bar**. The IN ◆ moves IN and the OUT ◆ moves OUT.
-- **Touching anywhere away from a ◆ does nothing** (tapping the bar does not seek by itself). This is what prevents mis-operation.
+- **Playback position (white round ▶)**: in the upper part. Grab near the white round handle (about 28 px, within about 48 px left/right) and drag left or right.
+- **IN / OUT (red IN box and orange OUT box)**: in the lower part. The red IN box moves IN and the orange OUT box moves OUT.
+- **Keyframes**: the **translucent white vertical ticks** on the upper part of the bar are keyframes (they are not yellow).
+- The bar is 96 px high on PC and 88 px on phones. The boundary between the rows is about 46% of the bar height.
+- **Touching anywhere away from a handle does nothing** (tapping the bar does not seek by itself). This is what prevents mis-operation.
 - Once grabbed, the cursor **follows the movement of your finger** (it does not jump to the finger).
 - Movements under 3 px do not change any value.
 - IN and OUT never cross each other (they stop at one another).
@@ -301,18 +303,21 @@ To change settings, copy `config.example.json` to `config.json` and edit it. Mai
 `e2e_lossless.py` and `e2e_edge.py` verify that lossless cutting is correct. See `docs/API.md` for the API.
 ### Audio timing (shift / extra track)
 
-You can shift the audio later or earlier to fix lip-sync drift while keeping the cut **lossless** (packet copy).
+The panel is collapsed by default; press the **Audio timing** heading to open it. The values apply to exports, and the preview is baked with **Apply to preview**.
 
-- Use the **audio timing** panel to set the original audio shift, the extra track and the mode.
-- **Original audio shift**: type a value in ms (no upper limit) or use the **relative slider whose centre is the current value**. Positive delays, negative advances.
-- **Extra audio track**: add the audio of another file, with its own start position (ms) and shift.
-- **Auto sync**: analyses the two tracks and proposes an offset (several windows of a few seconds each).
-- **Modes**: original only / extra only / both tracks (two lossless tracks) / mix (audio is re-encoded) / mute.
-- **Delay without re-encoding (optional)**: when a positive shift has no room to reach back (e.g. IN=0 with +500 ms), the default re-encodes the audio to prepend real silence. Turn this option on to keep **every audio packet untouched** and express the delay with the container start time (edit list) instead. It is exact in players that honour the start offset, but **some players ignore it and show no shift**. This option applies to exports only (the preview is always baked). Chapters are not written in this mode.
-- **Applying a preview**: the timing is baked into a **preview-only file (proxy)** that plays as ONE video. After changing a setting, press **Apply to preview** (the button is disabled while it is being generated). Until you do, the original audio plays, so the shift is not audible yet. **Revert** goes back to the original playback.
-- **Opening another video resets the timing**: it is a per-video value, so a new video starts again at original only / 0 ms (it is not part of the remembered settings).
-- The exported audio packets stay bit-identical to the source when shifting; only the mix mode re-encodes audio.
-
+- **Original audio shift**: + delays, − advances (ms; the relative slider can be used too).
+- **Extra audio track**: add the audio of another video/audio file.
+- **Extra-track shift**: + delays, − advances.
+- **Extra-track start (ms)**: an offset **inside the extra file** (how much to skip from its beginning). 0 starts at the beginning of the extra file. It is not a placement on the timeline. Cutting uses the audio stream PTS, so for unusual files whose start_time is not zero the effective head position is the requested value minus start_time (preview and export use the same basis).
+- **Auto sync**: analyses the two tracks and proposes an offset.
+- **Modes**: original only / extra only / both tracks / mix / mute. The preview is always ONE baked audio track.
+- **Lossless or re-encoded (per route)**:
+  - original only / extra only / both tracks: packet copy (lossless) in the normal case.
+  - When a positive shift has no room to reach back, the default re-encodes the audio to prepend real silence. Turn **Delay without re-encoding** on to keep the packets untouched and express the delay with the container start time (edit list) instead; players that ignore the start offset show no shift and chapters are not written in this mode.
+  - **Mix always re-encodes the audio.**
+  - **Video re-encode cannot use the extra track** (original only / mute only; the API returns 400 and the UI disables the extra modes).
+  - **Re-encode the extra track only** is an optional checkbox.
+- **Opening another video resets the timing**: it is a per-video value (it is not part of the remembered settings).
 
 ## Directory layout
 

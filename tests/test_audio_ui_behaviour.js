@@ -43,6 +43,44 @@ range.dispatch("input");
 check("jog: dragging left lowers the value by the delta", String($("origShiftInp").value) === "60", $("origShiftInp").value);
 range.dispatch("pointerup");
 
+// --- H. re-encode mode cannot use the added track (Critical fix) -----------------------
+P.state().mode = "lossless";
+P.state().source = { id: "s1" };
+S.updateAudioUI();
+$("radio:added").checked = true;
+$("radio:added").dispatch("change");
+P.state().mode = "reencode";
+S.updateAudioUI();
+check("reencode: an added mode is reset to original",
+      $("radio:original").checked === true && P.state().audioMode === "original",
+      P.state().audioMode);
+check("reencode: the added modes are disabled",
+      $("radio:added").disabled && $("radio:bothTracks").disabled && $("radio:bothMix").disabled);
+check("reencode: the panel explains why",
+      String($("audioModeHint").textContent).indexOf("再エンコードでは追加音声は利用できません") >= 0,
+      $("audioModeHint").textContent);
+P.state().mode = "lossless";
+S.updateAudioUI();
+check("lossless: the added modes are enabled again",
+      !$("radio:added").disabled && !$("radio:bothTracks").disabled && !$("radio:bothMix").disabled);
+$("radio:mute").checked = true;
+$("radio:mute").dispatch("change");
+P.state().mode = "reencode";
+S.updateAudioUI();
+check("reencode: mute is kept (it is still allowed)", $("radio:mute").checked === true);
+P.state().mode = "lossless";
+S.updateAudioUI();
+$("radio:added").checked = true;
+$("radio:added").dispatch("change");
+P.state().mode = "reencode";  // simulate a restored setting at boot
+S.updateAudioUI();
+check("reencode at boot: a restored added mode is reset to original",
+      $("radio:original").checked === true);
+P.state().mode = "lossless";
+$("radio:original").checked = true;
+$("radio:original").dispatch("change");
+S.updateAudioUI();
+
 // --- F. the preview is a baked proxy loaded as ONE element ---------------------------
 function ok(data) { return { ok: true, status: 200, text: async () => "", json: async () => data }; }
 function status(code, data) { return { ok: false, status: code, text: async () => "", json: async () => data }; }
@@ -91,6 +129,32 @@ check("preview: revert becomes visible after applying", $("previewRevertBtn").hi
 check("preview: applying never calls play() (iOS gesture is gone)",
       (vid._plays || 0) === plays0, (vid._plays || 0) - plays0);
 check("preview: the state reports 反映済み", String($("previewState").textContent).indexOf("反映済み") >= 0, $("previewState").textContent);
+
+// Switching to re-encode programmatically resets an added mode. The already-baked
+// preview must then be marked stale; changing .checked does not emit a change event.
+$("radio:added").checked = true;
+S.updateAudioUI();
+P.state().mode = "lossless";
+$("modeSeg").dispatch("click", { target: { closest: () => ({ dataset: { mode: "reencode" } }) } });
+check("preview: re-encode reset marks the baked preview stale",
+      String($("previewState").textContent).indexOf("未反映（設定が変更されました）") >= 0,
+      $("previewState").textContent);
+P.state().mode = "lossless";
+S.updateAudioUI();
+
+// Re-apply to get a fresh state, then replace the added file. Selecting a new added
+// source is a material change and must not leave the old bake labelled as current.
+S.fetch = async () => ok({ ok: true, cached: true, url: "/api/preview/media/aaaa.mp4" });
+await S.applyPreview();
+$("addedBrowseBtn").dispatch("click");  // pendingAddedOpen = true
+S.fetch = async (url) => String(url).indexOf("/api/sources/open") >= 0
+  ? ok({ source: { id: "added-new", name: "new-added.m4a" } }) : ok({ roots: [] });
+await S.openLocal("L:/dummy/new-added.m4a");
+check("preview: replacing the added source marks the preview stale",
+      String($("previewState").textContent).indexOf("未反映（設定が変更されました）") >= 0,
+      $("previewState").textContent);
+S.fetch = async () => ok({ ok: true, cached: true, url: "/api/preview/media/aaaa.mp4" });
+await S.applyPreview();
 
 // changing a value after applying must mark the preview as stale, not silently lie
 S.setAudioShift("orig", 180);

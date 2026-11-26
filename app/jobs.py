@@ -41,6 +41,7 @@ class Job:
         self.cond = threading.Condition()
         self.thread = None
         self.runner = None
+        self.on_finish = None
 
     @property
     def done(self):
@@ -98,9 +99,10 @@ class Job:
             "updatedAt": self.updated_at,
         }
 
-    def start(self, runner, semaphore, source_lock=None):
+    def start(self, runner, semaphore, source_lock=None, on_finish=None):
         self.runner = runner
         self.source_lock = source_lock
+        self.on_finish = on_finish
         self.thread = threading.Thread(target=self._run, args=(semaphore,), daemon=True)
         self.thread.start()
 
@@ -140,6 +142,12 @@ class Job:
             if self.source_lock is not None:
                 self.source_lock.release()
             semaphore.release()
+            if self.on_finish is not None:
+                try:
+                    self.on_finish(self)
+                except Exception:
+                    # Lifecycle cleanup must never change the job's terminal result.
+                    pass
 
     def stream(self, after_id=0):
         idx = 0
@@ -223,13 +231,13 @@ class JobManager:
         with self.lock:
             return k in self.reserved
 
-    def create(self, kind, source_id, runner):
+    def create(self, kind, source_id, runner, on_finish=None):
         job_id = uuid.uuid4().hex
         job = Job(job_id, kind, source_id, db=self.db)
         with self.lock:
             self.jobs[job_id] = job
         job.persist()
-        job.start(runner, self.semaphore, self.source_lock(kind, source_id))
+        job.start(runner, self.semaphore, self.source_lock(kind, source_id), on_finish=on_finish)
         return job
 
     def get(self, job_id):

@@ -6,6 +6,7 @@ cleanly when no server is listening (the same convention as the other e2e suites
 """
 import json
 import os
+import subprocess
 import sys
 import uuid
 import threading
@@ -168,6 +169,76 @@ def main():
                     and (row.get("result") or {}).get("addedStartMs") == run_token]
         check("exactly one job was created for the unique run token", len(matching) == 1,
               [row.get("id") for row in matching])
+
+    # Shifts must have the same unlimited integer-ms contract as exports. Two adjacent
+    # values must not collapse into one cache entry (the old 600 s clamp did that).
+    # run_token only makes this run unique; original mode ignores addedStartMs.
+    large_shift = 600001 + int(uuid.uuid4().int % 1000000)
+    large_results = []
+    for shift in (large_shift, large_shift + 1):
+        status, raw = request("/api/preview/build", "POST",
+                              {"sourceId": video["id"], "variant": body.get("variant", "original"),
+                               "audioMode": "original", "audioShiftMs": shift,
+                               "addedStartMs": run_token}, token=token)
+        check("preview accepts a shift beyond 600000 ms", status == 200, (status, raw[:160]))
+        payload = json.loads(raw) if raw else {}
+        large_results.append(payload.get("jobId") or payload.get("url"))
+        if payload.get("jobId"):
+            for _ in range(240):
+                time.sleep(0.2)
+                _status, job_raw = request("/api/jobs/" + payload["jobId"], token=token)
+                job = json.loads(job_raw).get("job") or {}
+                if job.get("status") in ("done", "error", "cancelled"):
+                    break
+    check("adjacent large shifts have distinct cache keys",
+          len(set(large_results)) == 2, large_results)
+
+    # An added source without audio is rejected just like the export route.
+    no_audio_path = Path("data/test/aux") / ("preview_no_audio_" + uuid.uuid4().hex + ".mp4")
+    no_audio_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([str(Path("tools/ffmpeg/bin/ffmpeg.exe")), "-y", "-v", "error",
+                    "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=10:duration=1",
+                    "-an", "-c:v", "libx264", str(no_audio_path)], check=True,
+                   capture_output=True)
+    status, raw = request("/api/sources/open", "POST",
+                          {"path": str(no_audio_path.resolve())}, token=token)
+    no_audio = json.loads(raw).get("source") or {}
+    check("the no-audio fixture opens", bool(no_audio.get("id")), raw[:160])
+    status, raw = request("/api/preview/build", "POST",
+                          {"sourceId": video["id"], "audioMode": "added",
+                           "addedSourceId": no_audio.get("id")}, token=token)
+    check("an added source without audio is a 400", status == 400, (status, raw[:160]))
+
+    # The same unused selection must be ignored in original mode, just like export.
+    status, raw = request("/api/preview/build", "POST",
+                          {"sourceId": video["id"], "variant": body.get("variant", "original"),
+                           "audioMode": "original", "addedSourceId": no_audio.get("id")}, token=token)
+    check("an unused no-audio added source is ignored in original mode",
+          status == 200, (status, raw[:160]))
+    payload = json.loads(raw) if raw else {}
+    if payload.get("jobId"):
+        for _ in range(240):
+            time.sleep(0.2)
+            _status, job_raw = request("/api/jobs/" + payload["jobId"], token=token)
+            job = json.loads(job_raw).get("job") or {}
+            if job.get("status") in ("done", "error", "cancelled"):
+                break
+        check("original mode with an unused added source finishes", job.get("status") == "done",
+              job.get("error"))
+
+    status, raw = request("/api/preview/build", "POST",
+                          {"sourceId": video["id"], "addedStartMs": -1}, token=token)
+    check("a negative addedStartMs is a 400", status == 400, (status, raw[:120]))
+
+    status, raw = request("/api/preview/build", "POST",
+                          {"sourceId": video["id"], "addedStartMs": "abc"}, token=token)
+    check("a non-numeric addedStartMs is a 400", status == 400, (status, raw[:120]))
+
+    for key in ("audioShiftMs", "addedShiftMs"):
+        for bad in ("abc", True, 1.5):
+            status, raw = request("/api/preview/build", "POST",
+                                  {"sourceId": video["id"], key: bad}, token=token)
+            check("invalid " + key + " is a 400: " + repr(bad), status == 400, (status, raw[:120]))
 
     status, raw = request("/api/preview/build", "POST",
                           {"sourceId": video["id"], "variant": 5}, token=token)

@@ -31,8 +31,11 @@ def _build_stamp():
     import hashlib
     h = hashlib.sha256()
     base = Path(__file__).resolve().parent
-    targets = [base / n for n in ("main.py", "exports.py", "jobs.py", "ffmpeg_tools.py",
-                                  "sources.py", "audio_sync.py", "security.py", "config.py")]
+    # preview.py is part of the served behaviour (the audio timing panel bakes through it),
+    # so it must move the stamp too: otherwise a suite can pass against a stale preview.
+    targets = [base / n for n in ("main.py", "exports.py", "preview.py", "jobs.py",
+                                  "ffmpeg_tools.py", "sources.py", "audio_sync.py",
+                                  "security.py", "config.py")]
     targets.append(base.parent / "web-qwen" / "index.html")
     for path in targets:
         h.update(path.name.encode())
@@ -89,7 +92,7 @@ def _bool_value(value):
     raise ValueError("not a boolean: " + repr(value))
 
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.3"
 
 
 def create_app():
@@ -177,13 +180,6 @@ def create_app():
     @app.exception_handler(LookupError)
     async def _lookup_handler(request: Request, exc: LookupError):
         return err("not_found", "not found", 404)
-
-    def _int_clamped(value, low, high):
-        try:
-            number = int(value)
-        except (TypeError, ValueError):
-            number = 0
-        return max(low, min(high, number))
 
     def source_or_404(source_id):
         source = db.get_source(source_id)
@@ -687,22 +683,53 @@ def create_app():
             return err("invalid_variant", "variant must be a string", 400)
         if raw_mode is not None and not isinstance(raw_mode, str):
             return err("invalid_audio_mode", "audioMode must be a string", 400)
+        for key in ("audioShiftMs", "addedShiftMs", "addedStartMs"):
+            value = body.get(key)
+            if value in (None, ""):
+                continue
+            if isinstance(value, bool):
+                return err("invalid_shift", key + " must be an integer in milliseconds", 400)
+            try:
+                if isinstance(value, float) and not value.is_integer():
+                    return err("invalid_shift", key + " must be an integer in milliseconds", 400)
+                int(value)
+            except (TypeError, ValueError):
+                return err("invalid_shift", key + " must be an integer in milliseconds", 400)
+        try:
+            if body.get("addedStartMs") not in (None, "") and int(body.get("addedStartMs")) < 0:
+                return err("invalid_shift", "addedStartMs must be >= 0", 400)
+        except (TypeError, ValueError):
+            return err("invalid_shift", "addedStartMs must be an integer in milliseconds", 400)
         options = {
             "variant": (raw_variant or "original").strip(),
             "audioMode": (raw_mode or "original").strip(),
-            "audioShiftMs": _int_clamped(body.get("audioShiftMs"), -600000, 600000),
-            "addedShiftMs": _int_clamped(body.get("addedShiftMs"), -600000, 600000),
-            "addedStartMs": _int_clamped(body.get("addedStartMs"), 0, 86400000),
+            # Same contract as exports: integer milliseconds with no practical shift cap.
+            # preview.py still bounds the generated silent buffer to the video duration.
+            "audioShiftMs": int(body.get("audioShiftMs") or 0),
+            "addedShiftMs": int(body.get("addedShiftMs") or 0),
+            "addedStartMs": int(body.get("addedStartMs") or 0),
             "addedSourceId": body.get("addedSourceId") or None,
         }
         if options["variant"] not in ("original", "proxy"):
             return err("invalid_variant", "variant must be original or proxy", 400)
         if options["audioMode"] not in ("original", "added", "bothTracks", "bothMix", "mute"):
             return err("invalid_audio_mode", "unknown audioMode", 400)
-        if options["addedSourceId"]:
-            if not db.get_source(options["addedSourceId"]):
+        uses_added = options["audioMode"] in ("added", "bothTracks", "bothMix")
+        if not uses_added:
+            # original/mute do not use the added file: ignore a stale selection just as
+            # the export does, and keep it out of the cache key.
+            options["addedSourceId"] = None
+        if uses_added and options["addedSourceId"]:
+            added_source = db.get_source(options["addedSourceId"])
+            if not added_source:
                 return err("not_found", "added source not found", 404)
-        elif options["audioMode"] in ("added", "bothTracks", "bothMix"):
+            try:
+                added_audio = exports.added_streams(json.loads(added_source.get("streams_json") or "[]"))
+            except (json.JSONDecodeError, TypeError):
+                added_audio = []
+            if not added_audio:
+                return err("invalid_audio", "the added file has no audio stream", 400)
+        elif uses_added:
             return err("invalid_request", "addedSourceId is required for this audioMode", 400)
         try:
             job, variant, key, cached = preview.start_preview(cfg, db, jobs, source, options)
@@ -815,11 +842,23 @@ def create_app():
             if value in (None, ""):
                 options.pop(key, None)
                 continue
+            if isinstance(value, bool):
+                return err("invalid_shift", key + " must be an integer in milliseconds", 400)
             try:
+                if isinstance(value, float) and not value.is_integer():
+                    return err("invalid_shift", key + " must be an integer in milliseconds", 400)
                 number = int(value)
             except (TypeError, ValueError):
                 return err("invalid_shift", key + " must be an integer in milliseconds", 400)
+            if key == "addedStartMs" and number < 0:
+                return err("invalid_shift", "addedStartMs must be >= 0", 400)
             options[key] = number
+        if options.get("mode") == "reencode" and audio_mode in ("added", "bothTracks", "bothMix"):
+            return err(
+                "invalid_request",
+                "再エンコードでは追加音声を利用できません（無変換を選ぶか、音声モードを元のみ/消音にしてください）",
+                400,
+            )
         added_source = None
         if audio_mode in ("added", "bothTracks", "bothMix"):
             added_source = db.get_source(options.get("addedSourceId") or "")

@@ -7,6 +7,8 @@ import time
 import urllib.error
 import urllib.request
 
+import numpy as np
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8003"
 D = os.path.join("data", "test", "aux")
 FF = os.path.join("tools", "ffmpeg", "bin", "ffmpeg.exe")
@@ -167,6 +169,69 @@ def elst_media_times(path):
     out = []
     boxes(data, 0, len(data), 0, [], out)
     return [x for x in out if isinstance(x, tuple)]
+
+
+def preview_audio_file(vid_id, added_id, added_start_ms):
+    """Build (or fetch) the baked preview and return a local audio-only wav path."""
+    body = {"sourceId": vid_id, "variant": "proxy", "audioMode": "added",
+            "audioShiftMs": 0, "addedShiftMs": 0, "addedStartMs": added_start_ms,
+            "addedSourceId": added_id}
+    st, r = call("POST", "/api/preview/build", body)
+    if st == 409 and (r or {}).get("proxyJobId"):
+        wait_job(r["proxyJobId"])
+        st, r = call("POST", "/api/preview/build", body)
+    if st != 200:
+        return None, "preview build HTTP %s %s" % (st, str(r)[:200])
+    url = (r or {}).get("url")
+    if not url and (r or {}).get("jobId"):
+        j = wait_job(r["jobId"])
+        url = ((j.get("result") or {}).get("url")) if j.get("status") == "done" else None
+    if not url:
+        return None, "no preview url"
+    req = urllib.request.Request(BASE + url)
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        blob = resp.read()
+    out = os.path.abspath(os.path.join(D, "preview_added_%d.wav" % int(added_start_ms)))
+    tmp = out + ".mp4"
+    with open(tmp, "wb") as fh:
+        fh.write(blob)
+    run([FF, "-y", "-v", "error", "-i", tmp, "-map", "0:a:0", "-ac", "1", "-ar", "48000", out])
+    return out, None
+
+
+def pcm_mono(path, start=None, dur=None):
+    pre = ["-ss", str(start), "-t", str(dur)] if start is not None else []
+    p = subprocess.run([FF, "-v", "error", "-i", path] + pre +
+                       ["-map", "0:a:0", "-ac", "1", "-ar", "48000", "-f", "f32le", "-"],
+                       capture_output=True)
+    return np.frombuffer(p.stdout, dtype=np.float32).astype(np.float64)
+
+
+def corr_at(a, b):
+    n = min(len(a), len(b))
+    if n < 1000:
+        return 0.0
+    x = a[:n] - a[:n].mean()
+    y = b[:n] - b[:n].mean()
+    den = np.sqrt((x * x).sum() * (y * y).sum())
+    return float((x * y).sum() / den) if den else 0.0
+
+
+def best_lag_corr(a, b, max_lag=2400):
+    """Max correlation within +/-50ms at 48k (avoids AAC priming differences)."""
+    best = -1.0
+    n = min(len(a), len(b)) - max_lag
+    if n < 1000:
+        return 0.0
+    for lag in range(-max_lag, max_lag + 1, 24):
+        if lag >= 0:
+            x, y = a[:n], b[lag:lag + n]
+        else:
+            x, y = a[-lag:-lag + n], b[:n]
+        c = corr_at(x, y)
+        if c > best:
+            best = c
+    return best
 
 
 def main():
@@ -421,6 +486,51 @@ def main():
         check(abs(float(ast[0].get("start_time") or 0)) < 0.1,
               "the added-only track starts at zero (the head skip is content, not an offset): "
               + str(ast[0].get("start_time")))
+
+    # --- 4b: the PREVIEW interprets addedStartMs the same way (Critical fix) ---
+    # A pure tone cannot tell a 1.0 s skip from a 0 s one (the waveform is periodic), so
+    # this check uses its own non-repeating chirp: every shift decorrelates it.
+    chirp_path = os.path.abspath(os.path.join(D, "chirp_e2e_" + stamp + ".m4a"))
+    run([FF, "-y", "-v", "error", "-f", "lavfi",
+         "-i", "aevalsrc=0.6*sin(2*PI*(200+60*t)*t):s=48000:d=9",
+         "-c:a", "aac", "-b:a", "160k", chirp_path])
+    st, rchirp = call("POST", "/api/sources/open", {"path": chirp_path})
+    chirp = (rchirp or {}).get("source") or {}
+    check(bool(chirp.get("id")), "the chirp fixture opens as a source")
+    prev_wav, perr = preview_audio_file(vid["id"], chirp.get("id"), 1000)
+    check(bool(prev_wav), "preview (addedStartMs=1000) builds: " + str(perr)[:200])
+    if prev_wav and chirp.get("id"):
+        got = pcm_mono(prev_wav)
+        want = pcm_mono(chirp_path, 1.0, 4.0)
+        wrong = pcm_mono(chirp_path, 0.0, 4.0)
+        c_want = best_lag_corr(got, want)
+        c_wrong = best_lag_corr(got, wrong)
+        print("     preview addedStart corr: want=%.3f wrong=%.3f" % (c_want, c_wrong))
+        check(c_want > 0.80, "preview audio comes from addedStartMs=1000 (corr %.3f)" % c_want)
+        check(c_want - c_wrong >= 0.20,
+              "preview rejects the 0s start (corr diff %.3f)" % (c_want - c_wrong))
+
+    # --- 4c: reencode mode refuses added tracks; mute is still allowed (Critical fix) ---
+    st, r4c = call("POST", "/api/exports",
+                   {"sourceId": vid["id"], "startUs": 2_000_000, "endUs": 6_000_000,
+                    "mode": "reencode",
+                    "options": {"audioMode": "added", "addedSourceId": aud["id"],
+                                "audioTiming": True}})
+    msg = str((r4c or {}).get("error") or (r4c or {}).get("message") or "")
+    check(st == 400 and "追加音声" in msg, "reencode+added is refused: %s %s" % (st, msg[:160]))
+    st, r4m = export(vid["id"], 2_000_000, 6_000_000,
+                     {"audioMode": "mute", "audioTiming": True}, mode="reencode")
+    check(r4m.get("status") == "done", "reencode+mute still succeeds: " + str(r4m.get("error"))[:200])
+    st, r4n = call("POST", "/api/exports",
+                   {"sourceId": vid["id"], "startUs": 2_000_000, "endUs": 6_000_000,
+                    "options": {"audioMode": "added", "addedSourceId": aud["id"],
+                                "addedStartMs": -1, "audioTiming": True}})
+    check(st == 400, "a negative addedStartMs is refused: %s" % st)
+    for bad in (True, 1.5):
+        st, r4t = call("POST", "/api/exports",
+                       {"sourceId": vid["id"], "startUs": 2_000_000, "endUs": 6_000_000,
+                        "options": {"audioShiftMs": bad, "audioTiming": True}})
+        check(st == 400, "export rejects a non-integer shift: " + repr(bad))
 
     # --- 12: the re-encode checkbox really re-encodes only the added track ---
     st, j = export(vid["id"], 2_000_000, 6_000_000,

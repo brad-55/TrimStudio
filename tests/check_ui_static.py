@@ -284,7 +284,7 @@ check("timeline: relative drag and cancel restore", "TL_DRAG_EPS" in qwen and "f
 check("timeline: pick only on grab", "pickTimelineTarget" not in qwen[qwen.index("function tlMoveEv("):qwen.index("function tlUp(")])
 
 # 24) audio panel (implemented by the local Qwen, verified by the lead)
-check("audio: mode radios", qwen.count("name='audioModeRadio'") == 5 and "value='bothMix'" in qwen and "value='mute'" in qwen)
+check("audio: mode radios", qwen.count("<input type='radio' name='audioModeRadio'") == 5 and "value='bothMix'" in qwen and "value='mute'" in qwen)
 check("audio: shift controls", "id='origShiftInp'" in qwen and "id='addedShiftInp'" in qwen and "id='origShiftRange'" in qwen and "data-shift" in qwen)
 check("audio: 1ms controls", qwen.count("data-delta='-1'") == 2 and qwen.count("data-delta='1'") == 2 and "class='btn ms'" in qwen)
 check("audio: fine slider and readout", "id='origShiftFine'" in qwen and "id='addedShiftFine'" in qwen and "id='origShiftVal'" in qwen and "function msLabel(" in qwen)
@@ -317,6 +317,18 @@ check("audio: the collapsed summary shows the current setting",
       and re.search(r"updateAudioTimingSummary\s*\(\s*\)\s*;", qwen) is not None)
 check("audio: the old duplicate timing heading is gone",
       "<label>音声タイミング調整</label>" not in qwen)
+check("audio: the added shift hint matches the sign",
+      "追加音声を遅らせる場合はプラス、進める場合はマイナスです。" in qwen
+      and "追加音声を進める場合はプラス" not in qwen)
+check("audio: addedStart is explained as an offset inside the added file",
+      "追加ファイル内の開始位置" in qwen)
+check("audio: reencode rejects the added modes on the server",
+      "再エンコードでは追加音声を利用できません" in main_py
+      and 'options.get("mode") == "reencode"' in main_py
+      and '"added", "bothTracks", "bothMix"' in main_py)
+check("audio: reencode disables the added modes in the UI",
+      "reencode&&(r.value===\"added\"||r.value===\"bothTracks\"||r.value===\"bothMix\")" in qwen
+      and "再エンコードでは追加音声を使えません" in qwen)
 check("audio: the timing details rely on defined css vars and helpers",
       "--line:" in qwen and "--muted:" in qwen
       and "function audioModeValue(" in qwen and "function clampMs(" in qwen)
@@ -334,7 +346,8 @@ check("audio: the delay option is a remembered preference",
 check("audio: the delay option explains the player caveat",
       "開始位置を無視する一部の再生アプリ" in qwen and "書き出しのみ" in qwen)
 check("audio: the delay option mentions the chapter limitation",
-      "チャプターは出力されません" in qwen and "チャプターは出力されません" in readme_md)
+      "チャプターは出力されません" in qwen
+      and ("チャプターは出力されません" in readme_md or "チャプターを出力しません" in readme_md))
 check("audio: the timing panel is material state, not a stored preference",
       "audioMode:modeRadio?modeRadio.value" not in qwen and "function resetAudioTiming()" in qwen
       and "state.addedSource=null" in qwen and "audioShiftMs" in qwen)

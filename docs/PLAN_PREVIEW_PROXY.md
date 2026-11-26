@@ -300,6 +300,10 @@
 - **負TS・非単調DTS対策**（Qwen R9-3 / GLM R10 Minor）: **入力側**に `-fflags +genpts`、**入力側**に `-fflags +genpts` を付ける。**`-avoid_negative_ts make_zero` は使わない**（実測で映像copyのPTSが約66msずれ、start_time≠0 とA/Vずれを生むため）。出力 start_time=0 を ffprobe で検証する。
 - **数値の書式化**（Agy R10-1）: `atrim=start=` / `adelay=` の数値は固定小数点（例: `f"{-tot_sec:.6f}"`）で生成し、指数表記や過剰桁で ffmpeg の構文解析が失敗しないようにする。
 - **追加音声が複数ストリームを持つ場合**は選択ストリームの start_time を rel に使う（音声ごとに rel を分けない）。
+> **訂正（2026-11）**: 以下の「addedStartMs も合算」は誤り。正しくは addedStartMs は
+> **追加ファイル内の開始位置**であり、遅延には加算しない（書き出しと同一）。現行実装は atrim で
+> 追加入力をスキップする。
+
 - **追加音声の総遅延**（Agy R10-2）: `tot_added_sec = ((addedShiftMs + addedStartMs) / 1000.0) + addedRel_sec` として addedStartMs も合算する（単体テストで確認）。
 - **音声なし素材の iOS 実機確認**: 音声ストリームを含まない MP4 で、シーク・位置復元が正常に完了することを検証項目に含める（Agy R7-2）。
 

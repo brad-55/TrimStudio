@@ -1,3 +1,7 @@
+> **ステータス（2026-11）**: 本文書には当時のライブプレビュー方式（audio.currentTime 同期）の
+> 記述が残っています。現行のプレビューは「焼き込みプロキシ」方式です。現行仕様は README と
+> docs/PLAN_AUDIO_EXPORT.md / docs/API.md を正とします。
+
 # 音声トラック機能（音ズレ解消・追加・自動同期・選択）計画 v0.1
 
 作成: 2026-11-07 / 対象: TrimStudio（app/exports.py, app/main.py, web-qwen/index.html）
